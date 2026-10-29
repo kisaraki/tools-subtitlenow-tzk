@@ -1,0 +1,24 @@
+# Build output and local tooling
+/target/
+/.vs/
+/.idea/
+*.pdb
+
+# Local preferences, credentials, and diagnostic output
+/config.json
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.log
+
+# Never commit captured media, exported subtitles, or content caches.
+*.wav
+*.pcm
+*.srt
+*.vtt
+/cache/
+/tmp/
+

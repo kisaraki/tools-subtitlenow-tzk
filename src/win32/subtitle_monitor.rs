@@ -155,6 +155,7 @@ mod tests {
     #[test]
     fn phase11_initial_floating_geometry_uses_half_screen_height_and_one_third_width() {
         for (left, top, width, height) in [
+            (0, 0, 1024, 768),
             (0, 0, 1920, 1080),
             (-2560, -100, 2560, 1440),
             (0, 0, 3840, 2160),

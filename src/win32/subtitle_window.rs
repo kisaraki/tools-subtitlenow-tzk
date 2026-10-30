@@ -3928,9 +3928,20 @@ mod tests {
             );
             let (screen, work) = subtitle_monitor::window_geometry(shell.main.get()).unwrap();
             let expected = subtitle_monitor::initial_side_placement(screen, work);
-            assert_eq!(rect.right - rect.left, expected.right - expected.left);
-            assert_eq!(rect.bottom - rect.top, expected.bottom - expected.top);
-            assert_eq!(rect.right, work.right);
+            // Windows enforces its minimum tracking size even for hidden windows.
+            // A 768px-high CI desktop requests 128px width, below its 136px minimum.
+            // Keep checking exact geometry, including the preserved left/top; the
+            // pure placement test separately checks the requested right alignment.
+            let dpi = GetDpiForWindow(shell.main.get());
+            assert_eq!(
+                rect.right - rect.left,
+                (expected.right - expected.left).max(GetSystemMetricsForDpi(SM_CXMINTRACK, dpi))
+            );
+            assert_eq!(
+                rect.bottom - rect.top,
+                (expected.bottom - expected.top).max(GetSystemMetricsForDpi(SM_CYMINTRACK, dpi))
+            );
+            assert_eq!((rect.left, rect.top), (expected.left, expected.top));
             assert_eq!(GetMenuItemCount(Some(GetMenu(shell.main.get()))), 2);
             assert_eq!(GetMenuItemID(GetMenu(shell.main.get()), 1), ABOUT as u32);
             for control in shell.panel.borrow().as_ref().unwrap().handles() {

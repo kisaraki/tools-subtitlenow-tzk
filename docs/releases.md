@@ -18,6 +18,8 @@
 
 ## 建置
 
+`rust-toolchain.toml` 固定 Rust 1.98.1，CI 與封包流程都讀取同一個檔案。本次本機驗證使用此版本；更新工具鏈應另外驗證，避免浮動的 stable 引入新 lint 而讓同一版原始碼無法重現通過結果。所有 Clippy 警告仍視為錯誤。工具鏈版本固定方式見 [Rustup 官方說明](https://rust-lang.github.io/rustup/overrides.html#the-toolchain-file)。
+
 ```powershell
 winget install --id JRSoftware.InnoSetup --exact
 cargo fmt --check

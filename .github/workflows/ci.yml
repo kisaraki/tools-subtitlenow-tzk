@@ -15,9 +15,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Install stable Rust tools
+      - name: Install repository Rust toolchain
         shell: pwsh
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy --no-self-update
+        run: rustup show active-toolchain
       - name: Check formatting
         run: cargo fmt --check
       - name: Check lints

@@ -212,7 +212,7 @@ Phase 7 第三批加入 Session 所有的 SubtitleSourceArbiter。最多四份�
 
 ## 開發與執行
 
-環境需求：Windows x86_64、Rust stable MSVC 工具鏈，以及 Visual Studio C++ Build Tools／Windows SDK。`rust-toolchain.toml` 指定 stable、rustfmt 與 Clippy；`Cargo.lock` 固定應用程式相依套件版本，應一併納入版本控制。
+環境需求：Windows x86_64、Rust 1.98.1 MSVC 工具鏈，以及 Visual Studio C++ Build Tools／Windows SDK。`rust-toolchain.toml` 固定本次發佈已驗證的 Rust 版本、rustfmt 與 Clippy；`Cargo.lock` 固定應用程式相依套件版本，應一併納入版本控制。
 
 在專案根目錄執行：
 

@@ -16,7 +16,6 @@ pub mod prepared_transcript_translation;
 pub(crate) mod prepared_translation;
 mod preprocess_worker;
 pub mod provider;
-pub(crate) mod service_check;
 pub mod speech;
 pub mod speech_progress;
 pub mod streaming;

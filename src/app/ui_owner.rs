@@ -66,8 +66,6 @@ pub(super) struct LiveController {
     notice: Option<String>,
     discovery_notice: Option<String>,
     content: Option<super::content::ContentConfiguration>,
-    service_report: Option<std::sync::mpsc::Receiver<crate::ai::service_check::CheckReport>>,
-    service_notice: bool,
 }
 #[cfg(windows)]
 impl LiveController {
@@ -82,8 +80,6 @@ impl LiveController {
             notice: Some("請明確選擇程序及服務；啟動後音訊與文字將送至所選雲端。".into()),
             discovery_notice: None,
             content,
-            service_report: None,
-            service_notice: false,
         })
     }
     fn reap(&mut self) {
@@ -91,15 +87,7 @@ impl LiveController {
             && let Some(mut worker) = self.worker.take()
         {
             let result = worker.stop_join();
-            if let Some(report) = self.service_report.take() {
-                self.notice = Some(match result {
-                    Err(error) => error.to_string(),
-                    Ok(()) => report
-                        .try_recv()
-                        .map(|report| report.label())
-                        .unwrap_or_else(|_| "Gemini 診斷未交付結果；未開始擷取。".into()),
-                });
-            } else if let Err(error) = result {
+            if let Err(error) = result {
                 self.notice = Some(error.to_string());
             }
         }
@@ -156,13 +144,10 @@ impl crate::ui::controls::UiController for LiveController {
         crate::ui::controls::ControlUpdate {
             sources: self.sources.clone(),
             busy: self.worker.is_some(),
-            notice: if self.service_notice {
-                self.notice.clone()
-            } else {
-                self.discovery_notice
-                    .clone()
-                    .or_else(|| self.notice.clone())
-            },
+            notice: self
+                .discovery_notice
+                .clone()
+                .or_else(|| self.notice.clone()),
         }
     }
     fn start(
@@ -258,7 +243,6 @@ impl crate::ui::controls::UiController for LiveController {
             })
         })?);
         self.notice = source_notice;
-        self.service_notice = false;
         Ok(inbox)
     }
     fn save_preferences(
@@ -283,59 +267,6 @@ impl crate::ui::controls::UiController for LiveController {
         // validated copy is wiped on drop; UI receives only success/typed failure.
         drop(WindowsCredentialStore.read(provider)?);
         Ok(())
-    }
-    fn check_gemini_service(
-        &mut self,
-        language: crate::domain::SourceLanguage,
-        key: Option<crate::ai::credentials::ApiKey>,
-    ) -> Result<UiInbox> {
-        self.check_gemini_service_model(
-            crate::ai::provider::LiveSpeechModel::GeminiTranscribeLive,
-            language,
-            key,
-        )
-    }
-    fn check_gemini_service_model(
-        &mut self,
-        model: crate::ai::provider::LiveSpeechModel,
-        language: crate::domain::SourceLanguage,
-        key: Option<crate::ai::credentials::ApiKey>,
-    ) -> Result<UiInbox> {
-        if model.provider() != crate::ai::provider::SpeechProvider::Gemini {
-            return Err(crate::ai::speech::SpeechError::UnsupportedCapability.into());
-        }
-        self.reap();
-        if self.worker.is_some() {
-            return Err(bridge::UiBridgeError::InvalidState.into());
-        }
-        let (mut publisher, inbox) = bridge::channel();
-        publisher.prepare_service_check()?;
-        let (sender, report) = std::sync::mpsc::sync_channel(1);
-        let worker = UiWorker::start(publisher, move |publisher| {
-            use crate::ai::credentials::{CredentialStore, WindowsCredentialStore};
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|_| AppError::RuntimeInitialization)?;
-            let key = match key {
-                Some(key) => key,
-                None => WindowsCredentialStore.read(crate::ai::provider::SpeechProvider::Gemini)?,
-            };
-            let cancel = publisher.cancellation();
-            let result = runtime.block_on(async {
-                tokio::select! { biased;
-                    _ = cancel.cancelled() => crate::ai::service_check::CheckReport::Cancelled,
-                    report = crate::ai::service_check::gemini_model(&key, language, model) => report,
-                }
-            });
-            sender.try_send(result).map_err(|_| AppError::LiveWorker)?;
-            Ok(())
-        })?;
-        self.worker = Some(worker);
-        self.service_report = Some(report);
-        self.service_notice = true;
-        self.notice = Some("Gemini 無音訊診斷中：只向 Google 傳金鑰、語言與固定模型設定；查詢模型資訊並初始化串流。不傳音訊或字幕。可按停止取消。".into());
-        Ok(inbox)
     }
     fn request_stop(&mut self) {
         if let Some(worker) = &self.worker {

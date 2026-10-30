@@ -19,7 +19,6 @@ pub const UI_REFRESH_INTERVAL: Duration = Duration::from_millis(33);
 pub enum UiStatus {
     Idle,
     Starting,
-    CheckingService,
     Stopping,
     Listening,
     Translating,
@@ -37,7 +36,6 @@ impl UiStatus {
             Self::Stopping => "正在停止，尚無字幕紀錄",
             Self::Stopped => "已停止，尚無字幕紀錄",
             Self::Starting => "正在連線，尚未開始辨識",
-            Self::CheckingService => "服務診斷中，未啟動音訊辨識",
             _ => "等待字幕",
         }
     }
@@ -45,7 +43,6 @@ impl UiStatus {
         match self {
             Self::Idle => "待命",
             Self::Starting => "準備連線",
-            Self::CheckingService => "服務診斷（連線、不傳音訊）",
             Self::Stopping => "正在停止",
             Self::Listening => "正在聆聽",
             Self::Translating => "正在翻譯",
@@ -122,9 +119,6 @@ impl UiFrame {
                     _ => "已停止傳送內容",
                 }
             ),
-            None if self.status == UiStatus::CheckingService => {
-                "Gemini · 服務診斷中；未擷取或傳送音訊／字幕".into()
-            }
             None => format!(
                 "{} · 尚未選擇來源，未啟動擷取或雲端處理",
                 self.status.label()
@@ -273,19 +267,6 @@ pub fn channel() -> (UiPublisher, UiInbox) {
     )
 }
 impl UiPublisher {
-    /// Dedicated source-free diagnostic state, only on a fresh owned channel.
-    /// It cannot create an audio Session or transition an active Live pipeline.
-    pub(crate) fn prepare_service_check(&mut self) -> Result<(), UiBridgeError> {
-        self.ready()?;
-        if self.frame.status != UiStatus::Idle
-            || self.frame.source.is_some()
-            || self.frame.identity.is_some()
-        {
-            return Err(UiBridgeError::InvalidState);
-        }
-        self.frame.status = UiStatus::CheckingService;
-        self.send()
-    }
     pub fn attach_diagnostics(
         &mut self,
         diagnostics: Option<Arc<crate::performance::live::LiveDiagnostics>>,

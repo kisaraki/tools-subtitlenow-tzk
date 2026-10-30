@@ -22,3 +22,7 @@
 /cache/
 /tmp/
 
+# Packaged releases and local validation artifacts
+/dist/
+/artifacts/
+

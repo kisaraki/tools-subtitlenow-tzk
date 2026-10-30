@@ -1,6 +1,9 @@
 [package]
 name = "subtitlenow"
-version = "0.1.0"
+default-run = "subtitlenow"
+version = "0.1.1"
+authors = ["kisaraki"]
+repository = "https://github.com/kisaraki/tools-subtitlenow-tzk"
 edition = "2024"
 publish = false
 description = "Windows 應用程式即時翻譯字幕工具"
@@ -13,7 +16,9 @@ tempfile = "3"
 thiserror = "2"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json"] }
-tokio = { version = "1", features = ["rt", "sync", "signal", "macros", "time", "net", "io-util"] }
+tokio = { version = "1", features = ["rt", "sync", "signal", "macros", "time", "net", "io-util", "fs"] }
+semver = "1"
+sha2 = "0.10"
 zeroize = "1"
 base64 = "0.22"
 futures-util = { version = "0.3", features = ["sink"] }

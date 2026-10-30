@@ -61,6 +61,7 @@ const SETTINGS: usize = 117;
 const CLEAR_SUBTITLES: usize = 118;
 const CREDENTIAL_SETTINGS: usize = 119;
 const STATUS_DETAILS: usize = 120;
+const ABOUT: usize = 121;
 const HISTORY_SUBCLASS_ID: usize = 1;
 const SETTINGS_WIDTH_DIP: i32 = 680;
 const SETTINGS_HEIGHT_DIP: i32 = 720;
@@ -346,6 +347,8 @@ impl SubtitleShell {
             AppendMenuW(menu_bar, MF_POPUP, menu_handle.0 as usize, w!("選單"))
                 .map_err(|_| AppError::SubtitleWindow)?;
             root.0 = None;
+            AppendMenuW(menu_bar, MF_STRING, ABOUT, w!("關於"))
+                .map_err(|_| AppError::SubtitleWindow)?;
             AppendMenuW(
                 menu_handle,
                 MF_STRING,
@@ -765,54 +768,6 @@ impl SubtitleShell {
             self.model.borrow_mut().stop();
             *self.frame.borrow_mut() = None;
             *self.notice.borrow_mut() = None;
-            self.poll_controller()?;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            *self.notice.borrow_mut() = Some(error.to_string());
-        }
-        self.refresh(self.visible.get())
-    }
-    fn check_gemini_service_from_controls(&self) -> Result<()> {
-        // SAFETY: our UI-thread owner; modal dialogs disable it and must not be bypassed.
-        if self.control_update.borrow().busy
-            || !unsafe {
-                windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(self.main.get())
-            }
-            .as_bool()
-        {
-            return Ok(());
-        }
-        if self.page.get() != ControlPage::Subtitles {
-            self.toggle_page(self.page.get())?;
-        }
-        let result: Result<()> = (|| {
-            let (language, key) = self
-                .panel
-                .borrow()
-                .as_ref()
-                .ok_or(AppError::InvalidArguments)?
-                .service_check_options()?;
-            let model = self
-                .panel
-                .borrow()
-                .as_ref()
-                .ok_or(AppError::InvalidArguments)?
-                .preferences()?
-                .live_model
-                .filter(|model| model.provider() == crate::ai::provider::SpeechProvider::Gemini)
-                .unwrap_or(crate::ai::provider::LiveSpeechModel::GeminiTranscribeLive);
-            let inbox = self
-                .controller
-                .borrow_mut()
-                .as_mut()
-                .ok_or(AppError::InvalidArguments)?
-                .check_gemini_service_model(model, language, key)?;
-            *self.inbox.borrow_mut() = Some(inbox);
-            self.model.borrow_mut().stop();
-            *self.frame.borrow_mut() = None;
-            *self.notice.borrow_mut() = None;
-            self.poll_inbox()?;
             self.poll_controller()?;
             Ok(())
         })();
@@ -1876,6 +1831,18 @@ impl SubtitleShell {
         Ok(())
     }
     fn command(&self, id: usize) -> Result<()> {
+        if id == ABOUT {
+            if super::about_window::show(self.main.get())? {
+                if let Some(controller) = self.controller.borrow_mut().as_mut() {
+                    controller.request_stop();
+                }
+                // SAFETY: post close to our own UI-thread window; normal teardown
+                // cancels and joins all session workers before the process exits.
+                unsafe { PostMessageW(Some(self.main.get()), WM_CLOSE, WPARAM(0), LPARAM(0)) }
+                    .map_err(|_| AppError::SubtitleWindow)?;
+            }
+            return Ok(());
+        }
         if [STATUS_DETAILS, STATUS_LABEL].contains(&id) {
             if let Err(error) = self.open_status_window(self.visible.get()) {
                 *self.notice.borrow_mut() = Some(error.to_string());
@@ -2160,7 +2127,7 @@ fn run_window(
 pub(super) fn scale(value: i32, dpi: u32) -> i32 {
     (i64::from(value) * i64::from(dpi.max(96)) / 96) as i32
 }
-unsafe fn make_font(dpi: u32) -> HFONT {
+pub(super) unsafe fn make_font(dpi: u32) -> HFONT {
     // SAFETY: initialized, correctly sized NONCLIENTMETRICSW is filled synchronously.
     // Clone Windows' message font for this monitor; caller owns the resulting HFONT.
     unsafe {
@@ -2360,12 +2327,6 @@ unsafe fn main_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM)
                             crate::ai::provider::SpeechProvider::Gemini
                         };
                         if shell.check_key_from_controls(provider).is_err() {
-                            shell.fail();
-                        }
-                        return LRESULT(0);
-                    }
-                    if id == subtitle_controls::GEMINI_SERVICE_CHECK {
-                        if shell.check_gemini_service_from_controls().is_err() {
                             shell.fail();
                         }
                         return LRESULT(0);
@@ -2670,8 +2631,6 @@ mod tests {
         pub(super) save_error: Option<crate::ai::credentials::CredentialError>,
         pub(super) checked: Vec<crate::ai::provider::SpeechProvider>,
         pub(super) check_error: Option<crate::ai::credentials::CredentialError>,
-        pub(super) service_checks: Vec<(crate::domain::SourceLanguage, bool)>,
-        pub(super) service_models: Vec<crate::ai::provider::LiveSpeechModel>,
     }
     impl UiController for MockController {
         fn save_preferences(&mut self, preferences: ControlPreferences) -> Result<()> {
@@ -2734,31 +2693,6 @@ mod tests {
                 None => Ok(()),
             }
         }
-        fn check_gemini_service(
-            &mut self,
-            language: crate::domain::SourceLanguage,
-            key: Option<crate::ai::credentials::ApiKey>,
-        ) -> Result<UiInbox> {
-            let mut state = self.state.borrow_mut();
-            if state.update.busy {
-                return Err(crate::ui::bridge::UiBridgeError::InvalidState.into());
-            }
-            state.service_checks.push((language, key.is_some()));
-            state.update.busy = true;
-            let (mut publisher, inbox) = crate::ui::bridge::channel();
-            publisher.prepare_service_check()?;
-            self.publisher = Some(publisher);
-            Ok(inbox)
-        }
-        fn check_gemini_service_model(
-            &mut self,
-            model: crate::ai::provider::LiveSpeechModel,
-            language: crate::domain::SourceLanguage,
-            key: Option<crate::ai::credentials::ApiKey>,
-        ) -> Result<UiInbox> {
-            self.state.borrow_mut().service_models.push(model);
-            self.check_gemini_service(language, key)
-        }
         fn request_stop(&mut self) {
             self.state.borrow_mut().update.busy = false;
             if let Some(mut publisher) = self.publisher.take() {
@@ -2791,8 +2725,6 @@ mod tests {
             save_error: None,
             checked: Vec::new(),
             check_error: None,
-            service_checks: Vec::new(),
-            service_models: Vec::new(),
         }));
         let shell = SubtitleShell::allocate(DisplayMode::Dual, false);
         if let Some(preferences) = preferences {
@@ -2839,8 +2771,7 @@ mod tests {
         assert!(control_text(shell.status.get()).contains("Gemini · Transcribe Live"));
         assert!(!unsafe { IsWindowEnabled(start) }.as_bool());
         shell.start_from_controls().unwrap(); // posted commands cannot bypass the gate
-        shell.check_gemini_service_from_controls().unwrap();
-        assert!(state.borrow().calls.is_empty() && state.borrow().service_checks.is_empty());
+        assert!(state.borrow().calls.is_empty());
         assert_eq!(control_text(gemini_key), "SYNTHETIC_GEMINI");
         assert_eq!(control_text(openai_key), "SYNTHETIC_OPENAI");
         for (index, expected) in [
@@ -2964,7 +2895,7 @@ mod tests {
                 }
             }
         }
-        assert!(state.borrow().calls.is_empty() && state.borrow().service_checks.is_empty());
+        assert!(state.borrow().calls.is_empty());
     }
     #[test]
     fn phase11_live_model_selection_round_trips_and_diagnostic_returns_to_main() {
@@ -2987,16 +2918,7 @@ mod tests {
             assert_eq!(panel.preferences().unwrap().live_model, Some(model));
             assert_eq!(panel.request().unwrap().live_model, Some(model));
         }
-        shell.check_gemini_service_from_controls().unwrap();
-        assert!(shell.page.get() == ControlPage::Subtitles);
-        assert_eq!(
-            state.borrow().service_models,
-            vec![LiveSpeechModel::GeminiLiveTranslate]
-        );
-        assert_eq!(
-            state.borrow().service_checks,
-            vec![(crate::domain::SourceLanguage::English, false)]
-        );
+        assert!(shell.page.get() == ControlPage::Credentials);
         assert!(state.borrow().calls.is_empty() && state.borrow().saved.is_empty());
     }
     #[test]
@@ -4009,7 +3931,8 @@ mod tests {
             assert_eq!(rect.right - rect.left, expected.right - expected.left);
             assert_eq!(rect.bottom - rect.top, expected.bottom - expected.top);
             assert_eq!(rect.right, work.right);
-            assert_eq!(GetMenuItemCount(Some(GetMenu(shell.main.get()))), 1);
+            assert_eq!(GetMenuItemCount(Some(GetMenu(shell.main.get()))), 2);
+            assert_eq!(GetMenuItemID(GetMenu(shell.main.get()), 1), ABOUT as u32);
             for control in shell.panel.borrow().as_ref().unwrap().handles() {
                 let panel = shell.panel.borrow();
                 let panel = panel.as_ref().unwrap();

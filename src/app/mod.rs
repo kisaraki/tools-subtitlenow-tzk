@@ -23,6 +23,19 @@ pub mod ui_owner;
 
 use crate::error::Result;
 
+#[cfg(windows)]
+pub fn run_desktop() -> Result<()> {
+    let _running = crate::win32::desktop::RunningGuard::new()?;
+    let config = config::AppConfig::load(&config::default_path()?)?;
+    let preferences = crate::ui::controls::ControlPreferences {
+        provider: config.speech_provider,
+        live_model: config.live_speech_model,
+        language: config.source_language,
+        quality: config.translation_quality,
+    };
+    ui_owner::run_controlled_with_content(config.display_mode, preferences, None)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Command {
     Status,

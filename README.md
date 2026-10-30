@@ -1,5 +1,11 @@
 # Universal AI Subtitle for Windows
 
+**SubtitleNow 0.1.1 · 作者 kisaraki**
+
+[官方網站](https://kisaraki.github.io/tools-subtitlenow-tzk/) · [下載 setup.exe](https://github.com/kisaraki/tools-subtitlenow-tzk/releases/latest/download/setup.exe) · [版本說明](https://github.com/kisaraki/tools-subtitlenow-tzk/releases/latest)
+
+2026-10-30：移除 Gemini 專用無音訊診斷功能，保留辨識／翻譯與本機金鑰檢查。新增「關於」的版本、作者、手動檢查更新及經 SHA-256 驗證的線上安裝流程。安裝版提供桌面啟動程式、偵測及先移除已安裝舊版。使用、更新、安全界線與發佈方式見 [安裝與發佈](docs/releases.md)。下方提及 Gemini 診斷按鈕的內容為歷史紀錄，現行版本不提供該按鈕。
+
 原生 UI 外觀更新：淺灰藍底、分色字幕／狀態區、圓角操作按鈕與文字留白，保留既有主頁配置、系統字型及字幕操作。實作範圍與驗證見 [UI 更新紀錄](docs/ui-refresh.md)；下方 Phase 11 結案版本保留為歷史基準。
 
 2026-10-28 Phase 11 已依使用者確認的驗收範圍結案。主頁／狀態視窗與手選語言限制已通過；Chrome 以外播放器、剩餘真實雲端斷線／恢復及混音／串燒／歌詞依明確指示免測，保留未實測限制。交付 E3C6C5CD… 版與既有 2166 項工程證據不變，本次另有原生影片停止／錯誤／中文 sidecar 單案通過。詳見 [結案紀錄](docs/phase-11-closeout.md)。目前 SPEC 的最後階段為 Phase 11，未定義下一階段。

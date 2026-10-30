@@ -14,4 +14,5 @@ pub mod resolver;
 pub mod session;
 pub mod subtitle;
 pub mod ui;
+pub mod update;
 pub mod win32;

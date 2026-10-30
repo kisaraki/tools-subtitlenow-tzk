@@ -169,25 +169,6 @@ pub trait UiController {
     fn check_key(&mut self, _provider: SpeechProvider) -> Result<()> {
         Err(crate::ai::credentials::CredentialError::Unavailable.into())
     }
-    /// Explicit Gemini-only network check. No source selection, capture or audio.
-    fn check_gemini_service(
-        &mut self,
-        _language: SourceLanguage,
-        _key: Option<ApiKey>,
-    ) -> Result<UiInbox> {
-        Err(crate::ui::bridge::UiBridgeError::InvalidState.into())
-    }
-    fn check_gemini_service_model(
-        &mut self,
-        model: crate::ai::provider::LiveSpeechModel,
-        language: SourceLanguage,
-        key: Option<ApiKey>,
-    ) -> Result<UiInbox> {
-        if model != crate::ai::provider::LiveSpeechModel::GeminiTranscribeLive {
-            return Err(crate::ai::speech::SpeechError::UnsupportedCapability.into());
-        }
-        self.check_gemini_service(language, key)
-    }
 }
 #[cfg(test)]
 pub(crate) fn mock_source(pid: u32) -> crate::audio::sessions::AudioSource {

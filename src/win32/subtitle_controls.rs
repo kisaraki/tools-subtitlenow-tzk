@@ -54,7 +54,6 @@ const SUBTITLE_NOTICE: usize = 417;
 pub(super) const PREPARED_MEDIA: usize = 418;
 pub(super) const CHECK_OPENAI_KEY: usize = 419;
 pub(super) const CHECK_GEMINI_KEY: usize = 420;
-pub(super) const GEMINI_SERVICE_CHECK: usize = 421;
 pub(super) const SAVE_PREFERENCES: usize = 422;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ControlPage {
@@ -90,7 +89,6 @@ pub(super) struct ControlPanel {
     pub save_gemini_key: HWND,
     pub check_openai_key: HWND,
     pub check_gemini_key: HWND,
-    pub gemini_service_check: HWND,
     pub save_preferences: HWND,
     pub openai_label: HWND,
     pub gemini_label: HWND,
@@ -228,10 +226,6 @@ impl ControlPanel {
                 gemini_key: password(GEMINI_KEY)?,
                 save_gemini_key: button(SAVE_GEMINI_KEY, w!("儲存"))?,
                 check_gemini_key: button(CHECK_GEMINI_KEY, w!("檢查本機"))?,
-                gemini_service_check: button(
-                    GEMINI_SERVICE_CHECK,
-                    w!("Gemini 診斷（連線、不傳音訊）"),
-                )?,
                 save_preferences: button(SAVE_PREFERENCES, w!("儲存服務與偏好"))?,
                 key_notice: label(KEY_NOTICE, KEY_GUIDANCE)?,
                 subtitle_source: button(SOURCE_SUBTITLE, w!("字幕來源（本次）"))?,
@@ -356,7 +350,7 @@ impl ControlPanel {
             Ok(panel)
         }
     }
-    pub fn handles(&self) -> [HWND; 22] {
+    pub fn handles(&self) -> [HWND; 21] {
         [
             self.source,
             self.provider,
@@ -370,7 +364,6 @@ impl ControlPanel {
             self.save_gemini_key,
             self.check_openai_key,
             self.check_gemini_key,
-            self.gemini_service_check,
             self.save_preferences,
             self.key_notice,
             self.subtitle_source,
@@ -382,7 +375,7 @@ impl ControlPanel {
             self.meter,
         ]
     }
-    pub fn buttons(&self) -> [HWND; 10] {
+    pub fn buttons(&self) -> [HWND; 9] {
         [
             self.start,
             self.stop,
@@ -390,7 +383,6 @@ impl ControlPanel {
             self.save_gemini_key,
             self.check_openai_key,
             self.check_gemini_key,
-            self.gemini_service_check,
             self.save_preferences,
             self.subtitle_source,
             self.prepared_media,
@@ -530,9 +522,6 @@ impl ControlPanel {
             MoveWindow(self.key_notice, pad, y, full, notice_height, true)
                 .map_err(|_| AppError::SubtitleWindow)?;
             let y = y + notice_height + gap;
-            MoveWindow(self.gemini_service_check, pad, y, full, row, true)
-                .map_err(|_| AppError::SubtitleWindow)?;
-            let y = y + row + gap;
             let subtitle_height = super::subtitle_window::scale(SUBTITLE_SOURCE_HEIGHT_DIP, dpi);
             let subtitle_button =
                 super::subtitle_window::scale(SUBTITLE_SOURCE_BUTTON_DIP, dpi).min(full / 2);
@@ -690,9 +679,7 @@ impl ControlPanel {
                 MoveWindow(self.key_notice, pad, y, full, notice, true)
                     .map_err(|_| AppError::SubtitleWindow)?;
                 y += notice + pad;
-                MoveWindow(self.gemini_service_check, pad, y, full, row, true)
-                    .map_err(|_| AppError::SubtitleWindow)?;
-                MoveWindow(self.save_preferences, pad, y + row + pad, full, row, true)
+                MoveWindow(self.save_preferences, pad, y, full, row, true)
                     .map_err(|_| AppError::SubtitleWindow)?;
                 Ok(header + super::subtitle_window::scale(CREDENTIAL_PANEL_HEIGHT, dpi))
             }
@@ -931,7 +918,6 @@ impl ControlPanel {
                 self.save_preferences,
                 self.check_openai_key,
                 self.check_gemini_key,
-                self.gemini_service_check,
                 self.subtitle_source,
                 self.prepared_media,
             ] {
@@ -1131,27 +1117,6 @@ impl ControlPanel {
         let result = read_password(control);
         clear_password(control)?;
         result?.ok_or_else(|| CredentialError::Missing.into())
-    }
-    pub fn service_check_options(&self) -> Result<(SourceLanguage, Option<ApiKey>)> {
-        // SAFETY: scalar selection query on this UI thread's owned combo.
-        let language = match unsafe { selected(self.language) } {
-            0 => SourceLanguage::Auto,
-            1 => SourceLanguage::English,
-            2 => SourceLanguage::Japanese,
-            3 => SourceLanguage::French,
-            4 => SourceLanguage::German,
-            5 => SourceLanguage::Korean,
-            _ => return Err(AppError::InvalidArguments),
-        };
-        let model = self
-            .preferences()?
-            .live_model
-            .filter(|model| model.provider() == SpeechProvider::Gemini)
-            .unwrap_or(crate::ai::provider::LiveSpeechModel::GeminiTranscribeLive);
-        model.validate_live(language, TranslationQuality::Standard)?;
-        let key = read_password(self.gemini_key);
-        clear_password(self.gemini_key)?;
-        Ok((language, key?))
     }
     pub fn key_notice(&self, text: &str) -> Result<()> {
         // SAFETY: static text is a safe status string, copied synchronously; never a key.

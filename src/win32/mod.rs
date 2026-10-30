@@ -3,6 +3,11 @@
 #![allow(unsafe_code)]
 
 #[cfg(windows)]
+mod about_window;
+#[cfg(windows)]
+pub mod desktop;
+
+#[cfg(windows)]
 pub mod audio;
 #[cfg(windows)]
 pub mod capture;

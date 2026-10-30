@@ -5,7 +5,7 @@ use crate::ai::{
     credentials::{CredentialError, MAX_KEY_BLOB_BYTES},
     provider::SpeechProvider,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, IsWindowEnabled};
+use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 
 const EM_CANUNDO_TEST: u32 = 0x00c6;
 fn set(control: HWND, text: &str) {
@@ -94,115 +94,12 @@ fn fixed_provider_labels_masked_fields_and_save_buttons_fit_without_source_selec
     assert!(rect(panel.openai_key).bottom <= rect(panel.gemini_key).top);
     assert!(rect(panel.gemini_key).bottom <= rect(panel.key_notice).top);
     assert!(rect(panel.key_notice).bottom <= rect(panel.start).top);
-    assert!(rect(panel.key_notice).bottom <= rect(panel.gemini_service_check).top);
-    assert!(rect(panel.gemini_service_check).bottom <= rect(panel.save_preferences).top);
     assert!(rect(panel.save_preferences).bottom <= rect(panel.start).top);
     assert_ne!(
         unsafe { GetWindowLongPtrW(panel.source, GWL_STYLE) as u32 & WS_VISIBLE.0 },
         0
     );
     assert!(rect(panel.start).bottom <= rect(shell.search_label.get()).top);
-}
-
-#[test]
-fn phase11_service_check_routes_only_gemini_without_source_and_preserves_other_key() {
-    use crate::domain::SourceLanguage;
-    let (shell, state) = controlled_mock();
-    {
-        let panel = shell.panel.borrow();
-        let panel = panel.as_ref().unwrap();
-        assert!(panel.request().is_err());
-        assert_eq!(
-            control_text(panel.gemini_service_check),
-            "Gemini 診斷（連線、不傳音訊）"
-        );
-        set(panel.openai_key, "SYNTHETIC_OTHER_KEY");
-        set(panel.gemini_key, "SYNTHETIC_GEMINI_KEY");
-        // SAFETY: scalar selections on this fixture's owned same-thread combos.
-        unsafe {
-            SendMessageW(panel.provider, CB_SETCURSEL, Some(WPARAM(1)), None);
-            SendMessageW(panel.language, CB_SETCURSEL, Some(WPARAM(2)), None);
-        }
-    }
-    click(&shell, subtitle_controls::GEMINI_SERVICE_CHECK);
-    assert_eq!(
-        state.borrow().service_checks,
-        [(SourceLanguage::Japanese, true)]
-    );
-    assert!(state.borrow().calls.is_empty());
-    assert!(state.borrow().saved.is_empty());
-    assert!(state.borrow().checked.is_empty());
-    assert!(shell.can_stop());
-    shell.poll_inbox().unwrap();
-    {
-        let frame = shell.frame.borrow();
-        let frame = frame.as_ref().unwrap();
-        assert!(frame.source.is_none());
-        assert!(frame.identity.is_none());
-        assert!(frame.status == UiStatus::CheckingService);
-        assert!(frame.status_text().contains("服務診斷中"));
-        assert!(!frame.status_text().contains("未啟動擷取或雲端處理"));
-    }
-    {
-        let panel = shell.panel.borrow();
-        let panel = panel.as_ref().unwrap();
-        assert_eq!(control_text(panel.openai_key), "SYNTHETIC_OTHER_KEY");
-        assert!(control_text(panel.gemini_key).is_empty());
-        // SAFETY: scalar state/undo queries on private same-thread controls.
-        unsafe {
-            assert_eq!(
-                SendMessageW(panel.gemini_key, EM_CANUNDO_TEST, None, None).0,
-                0
-            );
-            assert!(!IsWindowEnabled(panel.gemini_service_check).as_bool());
-            assert!(!IsWindowEnabled(panel.start).as_bool());
-            assert!(IsWindowEnabled(panel.stop).as_bool());
-        }
-    }
-    click(&shell, subtitle_controls::GEMINI_SERVICE_CHECK);
-    assert_eq!(state.borrow().service_checks.len(), 1);
-    click(&shell, subtitle_controls::STOP_BUTTON);
-    shell.poll_controller().unwrap();
-    shell.poll_inbox().unwrap();
-    click(&shell, subtitle_controls::GEMINI_SERVICE_CHECK);
-    // Empty Gemini field is passed as None, never remapped from the OpenAI field.
-    assert_eq!(
-        state.borrow().service_checks,
-        [
-            (SourceLanguage::Japanese, true),
-            (SourceLanguage::Japanese, false)
-        ]
-    );
-}
-
-#[test]
-fn phase11_service_check_cannot_bypass_disabled_modal_owner_or_invalid_key() {
-    let (shell, state) = controlled_mock();
-    // SAFETY: disables only this fixture's private window, then restores it.
-    unsafe {
-        let _ = EnableWindow(shell.main.get(), false);
-    }
-    click(&shell, subtitle_controls::GEMINI_SERVICE_CHECK);
-    assert!(state.borrow().service_checks.is_empty());
-    // SAFETY: same private owner, matching the previous disable.
-    unsafe {
-        let _ = EnableWindow(shell.main.get(), true);
-    }
-    {
-        let panel = shell.panel.borrow();
-        set(panel.as_ref().unwrap().gemini_key, "bad key");
-    }
-    click(&shell, subtitle_controls::GEMINI_SERVICE_CHECK);
-    assert!(state.borrow().service_checks.is_empty());
-    assert!(
-        shell
-            .notice
-            .borrow()
-            .as_ref()
-            .unwrap()
-            .contains("金鑰格式無效")
-    );
-    assert!(control_text(shell.panel.borrow().as_ref().unwrap().gemini_key).is_empty());
 }
 
 #[test]

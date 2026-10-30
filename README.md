@@ -1,6 +1,6 @@
 # Universal AI Subtitle for Windows
 
-**SubtitleNow 0.1.1 · 作者 kisaraki**
+**SubtitleNow 0.1.2 · 作者 kisaraki**
 
 [官方網站](https://kisaraki.github.io/tools-subtitlenow-tzk/) · [下載 setup.exe](https://github.com/kisaraki/tools-subtitlenow-tzk/releases/latest/download/setup.exe) · [版本說明](https://github.com/kisaraki/tools-subtitlenow-tzk/releases/latest)
 

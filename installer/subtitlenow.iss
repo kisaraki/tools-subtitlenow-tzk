@@ -13,6 +13,9 @@
 #ifndef OutputDir
   #define OutputDir "..\dist"
 #endif
+#ifndef BinaryDir
+  #define BinaryDir SourceDir + "\target\x86_64-pc-windows-msvc\release"
+#endif
 
 [Setup]
 AppId={#ProductId}
@@ -49,8 +52,8 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "建立桌面捷徑"; Flags: unchecked
 
 [Files]
-Source: "{#SourceDir}\target\release\subtitlenow-desktop.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\target\release\subtitlenow.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BinaryDir}\subtitlenow-desktop.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BinaryDir}\subtitlenow.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceDir}\target\package-licenses\*"; DestDir: "{app}\licenses\packages"; Flags: ignoreversion recursesubdirs createallsubdirs
 

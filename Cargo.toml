@@ -1,7 +1,7 @@
 [package]
 name = "subtitlenow"
 default-run = "subtitlenow"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["kisaraki"]
 repository = "https://github.com/kisaraki/tools-subtitlenow-tzk"
 edition = "2024"

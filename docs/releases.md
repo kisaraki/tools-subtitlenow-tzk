@@ -31,6 +31,10 @@ cargo build --locked
 
 輸出：`dist/setup.exe`、`dist/SHA256SUMS.txt`，不加入 Git。安裝精靈繁中語言檔來自 [Inno Setup 官方原始碼](https://github.com/jrsoftware/issrc/blob/main/Files/Languages/ChineseTraditional.isl)，保留翻譯作者註記。
 
+從 0.1.2 起，封包建置使用明確的 `x86_64-pc-windows-msvc` target 與 `-C target-feature=+crt-static`，將 C 執行階段連結進執行檔。建置後用 Visual Studio 的 `dumpbin` 檢查兩個執行檔；若仍需外部 Visual C++ runtime DLL，立即停止封包，避免使用者安裝後遇到缺少 `VCRUNTIME140.dll`。方式依 [Rust 官方連結說明](https://doc.rust-lang.org/reference/linkage.html#static-and-dynamic-c-runtimes)。Windows 系統元件（如 Media Foundation）仍須由作業系統提供。
+
+安裝包採用 `target/x86_64-pc-windows-msvc/release/` 中的執行檔。`scripts/test-installer.ps1` 可用獨立產品識別驗證完整安裝、升級、啟動、拒絕降級與移除；`-OldBinaryDir` 可指定真正舊版的執行檔目錄。已公開版本的資產不覆蓋，封包修正以新的版本發佈。
+
 ## GitHub 發佈
 
 1. 更新 Cargo 版本與鎖定檔、網站版本，完成上述檢查與安裝生命週期驗證。

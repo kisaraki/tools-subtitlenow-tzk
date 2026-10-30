@@ -6,9 +6,16 @@ try {
     $version = [regex]::Match((Get-Content Cargo.toml -Raw), '(?m)^version = "([0-9]+\.[0-9]+\.[0-9]+)"').Groups[1].Value
     if (-not $version) { throw 'Cargo.toml must contain a stable numeric version.' }
     if (-not $SkipBuild) {
-        cargo build --locked --release --bins
-        if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
+        if ($env:CARGO_ENCODED_RUSTFLAGS) { throw 'Unset CARGO_ENCODED_RUSTFLAGS so the installer build can enforce static CRT linkage.' }
+        $previousRustFlags = $env:RUSTFLAGS
+        try {
+            $env:RUSTFLAGS = "$previousRustFlags -C target-feature=+crt-static".Trim()
+            # An explicit target keeps the CRT flag off host proc-macro libraries.
+            cargo build --locked --release --target x86_64-pc-windows-msvc --bins
+            if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
+        } finally { $env:RUSTFLAGS = $previousRustFlags }
     }
+    & (Join-Path $PSScriptRoot 'check-runtime-dependencies.ps1')
     if (-not $Compiler) {
         $candidates = @(
             "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",

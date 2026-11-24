@@ -9,6 +9,7 @@ use crate::ui::appearance::{
     SubtitleFont,
 };
 use crate::ui::controls::{ControlPreferences, ControlUpdate, UiController};
+use crate::ui::panel_theme::PanelTheme;
 use crate::{
     domain::DisplayMode,
     error::{AppError, Result},
@@ -62,6 +63,8 @@ const CLEAR_SUBTITLES: usize = 118;
 const CREDENTIAL_SETTINGS: usize = 119;
 const STATUS_DETAILS: usize = 120;
 const ABOUT: usize = 121;
+const THEME_LIGHT: usize = 122;
+const THEME_DARK: usize = 123;
 const HISTORY_SUBCLASS_ID: usize = 1;
 const SETTINGS_WIDTH_DIP: i32 = 680;
 const SETTINGS_HEIGHT_DIP: i32 = 720;
@@ -157,6 +160,7 @@ fn append_popup(parent: HMENU, title: &str, items: &[(usize, String)]) -> Result
 }
 pub struct SubtitleShell {
     theme: RefCell<Option<subtitle_theme::Theme>>,
+    panel_theme: Cell<PanelTheme>,
     prepared: RefCell<Option<crate::session::prepared::PreparedAttachment>>,
     model: RefCell<Presentation>,
     main: Cell<HWND>,
@@ -204,6 +208,7 @@ impl SubtitleShell {
     fn allocate(mode: DisplayMode, quit_on_destroy: bool) -> Box<Self> {
         Box::new(Self {
             theme: RefCell::new(None),
+            panel_theme: Cell::new(PanelTheme::default()),
             prepared: RefCell::new(None),
             model: RefCell::new(Presentation::new(mode)),
             main: Cell::default(),
@@ -255,7 +260,7 @@ impl SubtitleShell {
     }
     /// Box address stays fixed until both windows have been synchronously destroyed.
     fn create(&self, visible: bool) -> Result<()> {
-        *self.theme.borrow_mut() = Some(subtitle_theme::Theme::new()?);
+        *self.theme.borrow_mut() = Some(subtitle_theme::Theme::new(self.panel_theme.get())?);
         // SAFETY: caller owns this Box on the UI thread. CREATESTRUCT stores a borrowed
         // pointer, never transfers ownership. Drop destroys HWNDs before freeing this Box.
         unsafe {
@@ -371,6 +376,10 @@ impl SubtitleShell {
             )
             .map_err(|_| AppError::SubtitleWindow)?;
             for (title, items) in [
+                (
+                    w!("面板外觀"),
+                    vec![(THEME_LIGHT, w!("淺色模式")), (THEME_DARK, w!("深色模式"))],
+                ),
                 (
                     w!("顯示模式"),
                     vec![
@@ -634,6 +643,7 @@ impl SubtitleShell {
             );
             self.update_font()?;
             subtitle_theme::style_button(self.clear_button.get());
+            self.repaint_theme();
             subtitle_theme::style_button(self.status_label.get());
             if let Some(panel) = self.panel.borrow().as_ref() {
                 for button in panel.buttons() {
@@ -987,22 +997,9 @@ impl SubtitleShell {
             WM_SYSCOLORCHANGE | WM_THEMECHANGED | WM_SETTINGCHANGE
         ) {
             // A failed cosmetic refresh must not stop an active translation session.
-            if let Ok(theme) = subtitle_theme::Theme::new() {
+            if let Ok(theme) = subtitle_theme::Theme::new(self.panel_theme.get()) {
                 *self.theme.borrow_mut() = Some(theme);
-                // SAFETY: owned UI-thread windows, asynchronous repaint only. No
-                // RefCell borrow survives child paint callbacks.
-                unsafe {
-                    for window in [self.main.get(), self.status_window.get()] {
-                        if IsWindow(Some(window)).as_bool() {
-                            let _ = RedrawWindow(
-                                Some(window),
-                                None,
-                                None,
-                                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
-                            );
-                        }
-                    }
-                }
+                self.repaint_theme();
             }
             return None;
         }
@@ -1014,7 +1011,15 @@ impl SubtitleShell {
                 let child = HWND(lparam.0 as *mut _);
                 let status = [self.status.get(), self.status_window_edit.get()].contains(&child);
                 let surface = message != WM_CTLCOLORSTATIC || child == self.history.get();
-                Some(theme.control_color(HDC(wparam.0 as *mut _), surface, status))
+                let dc = HDC(wparam.0 as *mut _);
+                let result = theme.control_color(dc, surface, status);
+                if child == self.brand.get() {
+                    // SAFETY: borrowed native paint DC; no state or content changes.
+                    unsafe {
+                        SetTextColor(dc, theme.violet);
+                    }
+                }
+                Some(result)
             }
             WM_DRAWITEM if lparam.0 != 0 => {
                 // SAFETY: native callback keeps the structure and destination DC
@@ -1025,13 +1030,66 @@ impl SubtitleShell {
                 }
                 theme.draw_button(
                     draw,
-                    draw.CtlID == subtitle_controls::START as u32
-                        || draw.CtlID == subtitle_controls::SAVE_PREFERENCES as u32,
+                    if draw.CtlID == subtitle_controls::START as u32
+                        || draw.CtlID == subtitle_controls::SAVE_PREFERENCES as u32
+                    {
+                        subtitle_theme::ButtonTone::Primary
+                    } else if draw.CtlID == subtitle_controls::STOP_BUTTON as u32
+                        || draw.CtlID == CLEAR_SUBTITLES as u32
+                    {
+                        subtitle_theme::ButtonTone::Warning
+                    } else {
+                        subtitle_theme::ButtonTone::Secondary
+                    },
                 );
                 Some(LRESULT(1))
             }
             _ => None,
         }
+    }
+    fn repaint_theme(&self) {
+        let dark = self
+            .theme
+            .borrow()
+            .as_ref()
+            .is_some_and(|theme| theme.dark_chrome());
+        // SAFETY: these handles belong to this UI thread; invalidate without activation,
+        // layout, text replacement, selection changes or backend work.
+        unsafe {
+            for hwnd in [self.main.get(), self.status_window.get()] {
+                if IsWindow(Some(hwnd)).as_bool() {
+                    subtitle_theme::style_title_bar(hwnd, dark);
+                    let _ = RedrawWindow(
+                        Some(hwnd),
+                        None,
+                        None,
+                        RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
+                    );
+                }
+            }
+        }
+    }
+    fn replace_panel_theme(&self, mode: PanelTheme) -> Result<()> {
+        let theme = subtitle_theme::Theme::new(mode)?;
+        self.panel_theme.set(mode);
+        *self.theme.borrow_mut() = Some(theme);
+        // SAFETY: owned menu and fixed command IDs, no processing commands.
+        unsafe {
+            CheckMenuRadioItem(
+                GetMenu(self.main.get()),
+                THEME_LIGHT as u32,
+                THEME_DARK as u32,
+                if mode == PanelTheme::Dark {
+                    THEME_DARK
+                } else {
+                    THEME_LIGHT
+                } as u32,
+                MF_BYCOMMAND.0,
+            )
+            .map_err(|_| AppError::SubtitleWindow)?;
+        }
+        self.repaint_theme();
+        Ok(())
     }
     fn position_overlay(&self) -> Result<()> {
         if *self.selected_monitor.borrow() == MonitorPreference::FollowSource {
@@ -1426,6 +1484,8 @@ impl SubtitleShell {
                 (DOCK_RIGHT, self.side_dock.get() == SideDock::Right),
                 (DOCK_FLOAT, self.side_dock.get() == SideDock::Floating),
                 (SETTINGS, self.page.get() == ControlPage::Sources),
+                (THEME_LIGHT, self.panel_theme.get() == PanelTheme::Light),
+                (THEME_DARK, self.panel_theme.get() == PanelTheme::Dark),
                 (
                     CREDENTIAL_SETTINGS,
                     self.page.get() == ControlPage::Credentials,
@@ -1831,8 +1891,30 @@ impl SubtitleShell {
         Ok(())
     }
     fn command(&self, id: usize) -> Result<()> {
+        if [THEME_LIGHT, THEME_DARK].contains(&id) {
+            let mode = if id == THEME_DARK {
+                PanelTheme::Dark
+            } else {
+                PanelTheme::Light
+            };
+            if let Err(error) = self.replace_panel_theme(mode) {
+                *self.notice.borrow_mut() = Some(format!("無法更新面板配色：{error}"));
+                return self.refresh(self.visible.get());
+            }
+            let saved = self
+                .controller
+                .borrow_mut()
+                .as_mut()
+                .map(|controller| controller.save_panel_theme(mode));
+            if matches!(saved, Some(Err(_))) {
+                *self.notice.borrow_mut() =
+                    Some("面板配色已切換，但無法儲存；下次啟動不會保留。".into());
+                return self.refresh(self.visible.get());
+            }
+            return Ok(());
+        }
         if id == ABOUT {
-            if super::about_window::show(self.main.get())? {
+            if super::about_window::show(self.main.get(), self.panel_theme.get())? {
                 if let Some(controller) = self.controller.borrow_mut().as_mut() {
                     controller.request_stop();
                 }
@@ -2063,24 +2145,26 @@ impl Drop for SubtitleShell {
     }
 }
 pub fn run(mode: DisplayMode) -> Result<()> {
-    run_window(mode, None, None)
+    run_window(mode, None, None, PanelTheme::default())
 }
 pub fn run_controlled(
     mode: DisplayMode,
     preferences: ControlPreferences,
     controller: Box<dyn UiController>,
+    theme: PanelTheme,
 ) -> Result<()> {
-    run_window(mode, None, Some((preferences, controller)))
+    run_window(mode, None, Some((preferences, controller)), theme)
 }
 /// The caller owns the single backend and must observe inbox cancellation and join
 /// it when this main-thread loop returns. No provider is started by this function.
 pub fn run_with_inbox(mode: DisplayMode, inbox: UiInbox) -> Result<()> {
-    run_window(mode, Some(inbox), None)
+    run_window(mode, Some(inbox), None, PanelTheme::default())
 }
 fn run_window(
     mode: DisplayMode,
     inbox: Option<UiInbox>,
     controller: Option<(ControlPreferences, Box<dyn UiController>)>,
+    theme: PanelTheme,
 ) -> Result<()> {
     // SAFETY: sets awareness on the UI thread only, before any of its windows exist.
     let previous =
@@ -2090,6 +2174,7 @@ fn run_window(
     }
     let _dpi = DpiContext(previous);
     let shell = SubtitleShell::allocate(mode, true);
+    shell.panel_theme.set(theme);
     *shell.inbox.borrow_mut() = inbox;
     if let Some((preferences, controller)) = controller {
         shell.preferences.set(preferences);
@@ -2192,23 +2277,26 @@ unsafe fn main_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM)
                 WM_MEASUREITEM if lparam.0 != 0 => {
                     // SAFETY: synchronous Win32-owned out structure, retained only for callback.
                     let measure = &mut *(lparam.0 as *mut MEASUREITEMSTRUCT);
-                    if measure.CtlID == subtitle_controls::SOURCE as u32
-                        && measure.CtlType == ODT_COMBOBOX
-                    {
-                        measure.itemHeight =
-                            scale(subtitle_controls::SOURCE_ROW_DIP, GetDpiForWindow(hwnd)) as u32;
+                    if measure.CtlType == ODT_COMBOBOX {
+                        measure.itemHeight = scale(
+                            if measure.CtlID == subtitle_controls::SOURCE as u32 {
+                                subtitle_controls::SOURCE_ROW_DIP
+                            } else {
+                                subtitle_controls::CHOICE_ROW_DIP
+                            },
+                            GetDpiForWindow(hwnd),
+                        ) as u32;
                         return LRESULT(1);
                     }
                 }
                 WM_DRAWITEM if lparam.0 != 0 => {
                     // SAFETY: callback-scoped Win32 draw structure and borrowed destination DC.
                     let draw = &*(lparam.0 as *const DRAWITEMSTRUCT);
-                    if draw.CtlID == subtitle_controls::SOURCE as u32
-                        && draw.CtlType == ODT_COMBOBOX
-                    {
+                    if draw.CtlType == ODT_COMBOBOX {
                         let latest = shell.control_update.borrow().sources.clone();
                         if let Some(panel) = shell.panel.borrow().as_ref()
-                            && panel.draw_source(draw, &latest).is_err()
+                            && let Some(theme) = shell.theme.borrow().as_ref()
+                            && panel.draw_choice(draw, &latest, theme).is_err()
                         {
                             shell.fail();
                         }
@@ -2628,11 +2716,21 @@ mod tests {
         )>,
         pub(super) saved: Vec<crate::ai::provider::SpeechProvider>,
         pub(super) preferences_saved: Vec<ControlPreferences>,
+        themes_saved: Vec<PanelTheme>,
+        theme_save_error: bool,
         pub(super) save_error: Option<crate::ai::credentials::CredentialError>,
         pub(super) checked: Vec<crate::ai::provider::SpeechProvider>,
         pub(super) check_error: Option<crate::ai::credentials::CredentialError>,
     }
     impl UiController for MockController {
+        fn save_panel_theme(&mut self, theme: PanelTheme) -> Result<()> {
+            let mut state = self.state.borrow_mut();
+            if state.theme_save_error {
+                return Err(UiBridgeError::InvalidState.into());
+            }
+            state.themes_saved.push(theme);
+            Ok(())
+        }
         fn save_preferences(&mut self, preferences: ControlPreferences) -> Result<()> {
             self.state.borrow_mut().preferences_saved.push(preferences);
             Ok(())
@@ -2722,6 +2820,8 @@ mod tests {
             prepared_starts: 0,
             saved: Vec::new(),
             preferences_saved: Vec::new(),
+            themes_saved: Vec::new(),
+            theme_save_error: false,
             save_error: None,
             checked: Vec::new(),
             check_error: None,
@@ -4001,6 +4101,88 @@ mod tests {
         assert_eq!(shell.model.borrow().identity(), Some(timeline.identity()));
         assert_eq!(shell.model.borrow().overlay_text(), "完整暫定字幕");
         assert!(state.borrow().calls.is_empty());
+    }
+
+    #[test]
+    fn panel_theme_switch_preserves_active_state_history_selection_and_geometry() {
+        let (shell, state) = controlled_mock();
+        let timeline = fixture_timeline(9400, "配色切換時保留的字幕");
+        shell.model.borrow_mut().select_session(timeline.identity());
+        shell
+            .model
+            .borrow_mut()
+            .apply(crate::ui::presentation::TimelineSnapshot::from_timeline(
+                &timeline, 1,
+            ));
+        shell.refresh(false).unwrap();
+        state.borrow_mut().update.busy = true;
+        // SAFETY: hidden owned fixture, synthetic text and synchronous same-thread messages.
+        unsafe {
+            let mut before = RECT::default();
+            GetWindowRect(shell.main.get(), &mut before).unwrap();
+            let font = SendMessageW(shell.history.get(), WM_GETFONT, None, None);
+            SendMessageW(
+                shell.history.get(),
+                EM_SETSEL_VALUE,
+                Some(WPARAM(1)),
+                Some(LPARAM(4)),
+            );
+            let selection = SendMessageW(shell.history.get(), EM_GETSEL_VALUE, None, None);
+            for (command, expected) in [
+                (THEME_DARK, PanelTheme::Dark),
+                (THEME_LIGHT, PanelTheme::Light),
+                (THEME_DARK, PanelTheme::Dark),
+            ] {
+                shell.command(command).unwrap();
+                assert_eq!(shell.panel_theme.get(), expected);
+                assert!(
+                    GetMenuState(GetMenu(shell.main.get()), command as u32, MF_BYCOMMAND)
+                        & MF_CHECKED.0
+                        != 0
+                );
+                assert_eq!(
+                    SendMessageW(shell.history.get(), EM_GETSEL_VALUE, None, None),
+                    selection
+                );
+                assert_eq!(
+                    SendMessageW(shell.history.get(), WM_GETFONT, None, None),
+                    font
+                );
+                let mut after = RECT::default();
+                GetWindowRect(shell.main.get(), &mut after).unwrap();
+                assert_eq!(
+                    (before.left, before.top, before.right, before.bottom),
+                    (after.left, after.top, after.right, after.bottom)
+                );
+                assert_eq!(shell.model.borrow().identity(), Some(timeline.identity()));
+                assert_eq!(shell.model.borrow().overlay_text(), "配色切換時保留的字幕");
+                assert!(state.borrow().update.busy);
+            }
+            shell.theme_message(shell.main.get(), WM_THEMECHANGED, WPARAM(0), LPARAM(0));
+            assert_eq!(shell.panel_theme.get(), PanelTheme::Dark);
+        }
+        let saved = state.borrow();
+        assert_eq!(
+            saved.themes_saved,
+            [PanelTheme::Dark, PanelTheme::Light, PanelTheme::Dark]
+        );
+        assert!(
+            saved.calls.is_empty()
+                && saved.checked.is_empty()
+                && saved.saved.is_empty()
+                && saved.preferences_saved.is_empty()
+        );
+    }
+
+    #[test]
+    fn panel_theme_save_error_is_visible_without_stopping_or_reverting_current_choice() {
+        let (shell, state) = controlled_mock();
+        state.borrow_mut().theme_save_error = true;
+        state.borrow_mut().update.busy = true;
+        shell.command(THEME_DARK).unwrap();
+        assert_eq!(shell.panel_theme.get(), PanelTheme::Dark);
+        assert!(shell.notice.borrow().as_ref().unwrap().contains("無法儲存"));
+        assert!(state.borrow().themes_saved.is_empty() && state.borrow().update.busy);
     }
     #[test]
     fn search_has_a_separate_preceding_native_label_outside_activity_and_edit() {

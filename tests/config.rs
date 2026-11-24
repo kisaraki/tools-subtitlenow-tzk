@@ -145,10 +145,39 @@ fn all_supported_preferences_round_trip_and_replace_existing_file() {
         keys,
         [
             "display_mode",
+            "panel_theme",
             "schema_version",
             "source_language",
             "translation_quality"
         ]
+    );
+}
+
+#[test]
+fn panel_theme_migrates_without_writing_and_round_trips_only_known_modes() {
+    use subtitlenow::ui::panel_theme::PanelTheme;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    for version in [1, 2] {
+        let old = format!(r#"{{"schema_version":{version},"source_language":"Japanese"}}"#);
+        fs::write(&path, &old).unwrap();
+        let mut config = AppConfig::load(&path).unwrap();
+        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(config.panel_theme, PanelTheme::Light);
+        assert_eq!(fs::read_to_string(&path).unwrap(), old);
+        for mode in [PanelTheme::Dark, PanelTheme::Light] {
+            config.panel_theme = mode;
+            config.save(&path).unwrap();
+            assert_eq!(AppConfig::load(&path).unwrap(), config);
+            assert_eq!(config.source_language, SourceLanguage::Japanese);
+        }
+    }
+    assert!(
+        load_json(
+            directory.path(),
+            br#"{"schema_version":3,"panel_theme":"Unknown"}"#
+        )
+        .is_err()
     );
 }
 

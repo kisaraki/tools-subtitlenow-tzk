@@ -130,6 +130,9 @@ fn cycle() {
     // Exercise theme replacement plus normal/pressed/disabled/focused button
     // painting in the existing isolated GDI/USER lifetime check. No real content.
     let _ = shell.theme_message(shell.main.get(), WM_THEMECHANGED, WPARAM(0), LPARAM(0));
+    for mode in [PanelTheme::Dark, PanelTheme::Light, PanelTheme::Dark] {
+        shell.replace_panel_theme(mode).unwrap();
+    }
     let buttons = shell.panel.borrow().as_ref().unwrap().buttons();
     for button in buttons {
         for state in [ODS_FLAGS(0), ODS_SELECTED, ODS_DISABLED, ODS_FOCUS] {

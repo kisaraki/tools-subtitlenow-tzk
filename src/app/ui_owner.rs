@@ -251,6 +251,9 @@ impl crate::ui::controls::UiController for LiveController {
     ) -> Result<()> {
         persist_control_preferences(&super::config::default_path()?, preferences)
     }
+    fn save_panel_theme(&mut self, theme: crate::ui::panel_theme::PanelTheme) -> Result<()> {
+        persist_panel_theme(&super::config::default_path()?, theme)
+    }
     fn save_key(
         &mut self,
         provider: crate::ai::provider::SpeechProvider,
@@ -273,6 +276,16 @@ impl crate::ui::controls::UiController for LiveController {
             worker.request_stop();
         }
     }
+}
+
+#[cfg(windows)]
+fn persist_panel_theme(
+    path: &std::path::Path,
+    theme: crate::ui::panel_theme::PanelTheme,
+) -> Result<()> {
+    let mut config = super::config::AppConfig::load(path)?;
+    config.panel_theme = theme;
+    config.save(path)
 }
 
 #[cfg(windows)]
@@ -314,11 +327,13 @@ pub fn run_controlled_with_content(
     mode: crate::domain::DisplayMode,
     preferences: crate::ui::controls::ControlPreferences,
     content: Option<super::content::ContentConfiguration>,
+    theme: crate::ui::panel_theme::PanelTheme,
 ) -> Result<()> {
     crate::win32::subtitle_window::run_controlled(
         mode,
         preferences,
         Box::new(LiveController::new(content)?),
+        theme,
     )
 }
 
@@ -403,6 +418,7 @@ mod tests {
         let path = directory.path().join("preferences.json");
         let original = super::super::config::AppConfig {
             display_mode: DisplayMode::Dual,
+            panel_theme: crate::ui::panel_theme::PanelTheme::Dark,
             ..Default::default()
         };
         original.save(&path).unwrap();
@@ -418,9 +434,10 @@ mod tests {
         assert_eq!(saved.source_language, preferences.language);
         assert_eq!(saved.translation_quality, preferences.quality);
         assert_eq!(saved.display_mode, DisplayMode::Dual);
+        assert_eq!(saved.panel_theme, crate::ui::panel_theme::PanelTheme::Dark);
         let json: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(json.as_object().unwrap().len(), 5);
+        assert_eq!(json.as_object().unwrap().len(), 6);
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
         let previous = std::fs::read(&path).unwrap();
         assert!(
@@ -440,6 +457,26 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), unsupported);
     }
     struct Released(Arc<AtomicBool>);
+    #[cfg(windows)]
+    #[test]
+    fn panel_theme_save_needs_no_provider_and_preserves_other_preferences() {
+        use crate::ui::panel_theme::PanelTheme;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let original = super::super::config::AppConfig {
+            source_language: crate::domain::SourceLanguage::Japanese,
+            ..Default::default()
+        };
+        original.save(&path).unwrap();
+        persist_panel_theme(&path, PanelTheme::Dark).unwrap();
+        let mut saved = super::super::config::AppConfig::load(&path).unwrap();
+        assert_eq!(saved.panel_theme, PanelTheme::Dark);
+        saved.panel_theme = PanelTheme::Light;
+        assert_eq!(saved, original);
+        std::fs::write(&path, b"invalid-config").unwrap();
+        assert!(persist_panel_theme(&path, PanelTheme::Light).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"invalid-config");
+    }
     impl Drop for Released {
         fn drop(&mut self) {
             self.0.store(true, Ordering::SeqCst);

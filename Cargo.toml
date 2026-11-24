@@ -1,7 +1,7 @@
 [package]
 name = "subtitlenow"
 default-run = "subtitlenow"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["kisaraki"]
 repository = "https://github.com/kisaraki/tools-subtitlenow-tzk"
 edition = "2024"
@@ -38,6 +38,7 @@ windows = { version = "0.62", features = [
     "Win32_Devices_FunctionDiscovery",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
     "Win32_Media_MediaFoundation",

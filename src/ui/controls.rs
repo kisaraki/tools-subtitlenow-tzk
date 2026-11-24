@@ -157,6 +157,10 @@ pub trait UiController {
     fn poll(&mut self) -> ControlUpdate;
     fn start(&mut self, request: StartRequest, key: Option<ApiKey>) -> Result<UiInbox>;
     fn request_stop(&mut self);
+    /// Save only the explicit display preference, without reading keys or starting work.
+    fn save_panel_theme(&mut self, _theme: super::panel_theme::PanelTheme) -> Result<()> {
+        Err(crate::ui::bridge::UiBridgeError::InvalidState.into())
+    }
     /// Explicit preference save; no key fields, source identity or content are included.
     fn save_preferences(&mut self, _preferences: ControlPreferences) -> Result<()> {
         Err(crate::ui::bridge::UiBridgeError::InvalidState.into())

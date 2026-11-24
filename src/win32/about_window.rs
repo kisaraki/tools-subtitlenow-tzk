@@ -1,4 +1,6 @@
 //! UI-thread About dialog; the single owned update job never touches native controls.
+use super::subtitle_theme::{self, ButtonTone, Theme};
+use crate::ui::panel_theme::PanelTheme;
 use crate::{
     error::{AppError, Result},
     update::{self, Outcome, Release, UpdateJob},
@@ -24,6 +26,8 @@ const INSTALL: usize = 1002;
 const CLOSE: usize = 1003;
 const POLL: usize = 1;
 struct About {
+    theme: RefCell<Option<Theme>>,
+    mode: PanelTheme,
     hwnd: Cell<HWND>,
     status: Cell<HWND>,
     check: Cell<HWND>,
@@ -34,8 +38,10 @@ struct About {
     font: Cell<HFONT>,
 }
 impl About {
-    fn new() -> Box<Self> {
+    fn new(mode: PanelTheme) -> Box<Self> {
         Box::new(Self {
+            theme: RefCell::new(None),
+            mode,
             hwnd: Cell::new(HWND::default()),
             status: Cell::new(HWND::default()),
             check: Cell::new(HWND::default()),
@@ -131,6 +137,7 @@ impl About {
         self.buttons();
     }
     fn create(&self, owner: HWND, visible: bool) -> Result<()> {
+        *self.theme.borrow_mut() = Some(Theme::new(self.mode)?);
         // SAFETY: registered callback holds the stable Box address only until
         // NCDESTROY. Children/fonts are owned on this thread and cleaned by Drop.
         unsafe {
@@ -219,6 +226,9 @@ impl About {
                         Some(WPARAM(self.font.get().0 as usize)),
                         Some(LPARAM(1)),
                     );
+                    if id > 0 {
+                        subtitle_theme::style_button(hwnd);
+                    }
                     Ok(hwnd)
                 };
             child(
@@ -259,6 +269,8 @@ impl About {
             )?);
             child(w!("BUTTON"), "關閉", CLOSE, 395, 295, 125, 34)?;
             self.buttons();
+            let dark = self.theme.borrow().as_ref().is_some_and(Theme::dark_chrome);
+            subtitle_theme::style_title_bar(self.hwnd.get(), dark);
             if SetTimer(Some(self.hwnd.get()), POLL, 100, None) == 0 {
                 return Err(AppError::SubtitleWindow);
             }
@@ -284,12 +296,12 @@ impl Drop for About {
         }
     }
 }
-pub(super) fn show(owner: HWND) -> Result<bool> {
+pub(super) fn show(owner: HWND, mode: PanelTheme) -> Result<bool> {
     // SAFETY: caller supplies its own UI-thread owner. Prevent nested modal entry.
     if !unsafe { IsWindowEnabled(owner) }.as_bool() {
         return Ok(false);
     }
-    let dialog = About::new();
+    let dialog = About::new(mode);
     dialog.create(owner, true)?;
     // SAFETY: message loop remains on the owning thread, so parent timers and
     // backend cancellation still run. Owner enabled again on every exit path.
@@ -337,6 +349,44 @@ unsafe extern "system" fn window_proc(
             let pointer = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const About;
             if !pointer.is_null() {
                 let state = &*pointer;
+                if matches!(
+                    message,
+                    WM_THEMECHANGED | WM_SYSCOLORCHANGE | WM_SETTINGCHANGE
+                ) && let Ok(theme) = Theme::new(state.mode)
+                {
+                    let dark = theme.dark_chrome();
+                    *state.theme.borrow_mut() = Some(theme);
+                    subtitle_theme::style_title_bar(hwnd, dark);
+                    let _ = windows::Win32::Graphics::Gdi::RedrawWindow(
+                        Some(hwnd),
+                        None,
+                        None,
+                        windows::Win32::Graphics::Gdi::RDW_INVALIDATE
+                            | windows::Win32::Graphics::Gdi::RDW_ERASE
+                            | windows::Win32::Graphics::Gdi::RDW_ALLCHILDREN,
+                    );
+                }
+                if let Some(theme) = state.theme.borrow().as_ref() {
+                    let dc = windows::Win32::Graphics::Gdi::HDC(wparam.0 as *mut _);
+                    match message {
+                        WM_ERASEBKGND => return theme.erase(hwnd, dc),
+                        WM_CTLCOLORSTATIC => return theme.control_color(dc, false, false),
+                        WM_DRAWITEM if lparam.0 != 0 => {
+                            let draw =
+                                &*(lparam.0 as *const windows::Win32::UI::Controls::DRAWITEMSTRUCT);
+                            theme.draw_button(
+                                draw,
+                                if draw.CtlID == CHECK as u32 {
+                                    ButtonTone::Primary
+                                } else {
+                                    ButtonTone::Secondary
+                                },
+                            );
+                            return LRESULT(1);
+                        }
+                        _ => {}
+                    }
+                }
                 match message {
                     WM_COMMAND => {
                         match wparam.0 & 0xffff {
@@ -393,7 +443,7 @@ mod tests {
                 None,
             )
             .unwrap();
-            let dialog = About::new();
+            let dialog = About::new(PanelTheme::Dark);
             dialog.create(owner, false).unwrap();
             assert!(dialog.job.borrow().is_none());
             assert!(dialog.release.borrow().is_none());

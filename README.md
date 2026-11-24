@@ -1,8 +1,10 @@
 # Universal AI Subtitle for Windows
 
-**SubtitleNow 0.1.2 · 作者 kisaraki**
+**SubtitleNow 0.1.3 · 作者 kisaraki**
 
 [官方網站](https://kisaraki.github.io/tools-subtitlenow-tzk/) · [下載 setup.exe](https://github.com/kisaraki/tools-subtitlenow-tzk/releases/latest/download/setup.exe) · [版本說明](https://github.com/kisaraki/tools-subtitlenow-tzk/releases/latest)
+
+2026-11-02：新增「選單 → 面板外觀 → 深色模式／淺色模式」。深色為藍黑、螢光綠、紫羅蘭與琥珀色；淺色為白灰、紫羅蘭與橘色。切換立即生效並記住偏好，保留字幕、視窗配置與執行中的翻譯。官網右上角也可獨立切換並記住網站配色。詳見 [面板配色](docs/ui-refresh.md)。
 
 2026-10-30：移除 Gemini 專用無音訊診斷功能，保留辨識／翻譯與本機金鑰檢查。新增「關於」的版本、作者、手動檢查更新及經 SHA-256 驗證的線上安裝流程。安裝版提供桌面啟動程式、偵測及先移除已安裝舊版。使用、更新、安全界線與發佈方式見 [安裝與發佈](docs/releases.md)。下方提及 Gemini 診斷按鈕的內容為歷史紀錄，現行版本不提供該按鈕。
 
@@ -261,23 +263,25 @@ Windows 設定位置為 `%LOCALAPPDATA%\SubtitleNow\config.json`。檔案不存�
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "source_language": "Auto",
   "translation_quality": "Standard",
-  "display_mode": "SideChat"
+  "display_mode": "SideChat",
+  "panel_theme": "Light"
 }
 ```
 
 | 欄位 | 可用值 | 預設 |
 | --- | --- | --- |
-| `schema_version` | `2`，必填；可讀舊 `1` | `2` |
+| `schema_version` | `3`，必填；可讀舊 `1`、`2` | `3` |
 | `source_language` | `Auto`、`English`、`Japanese`、`French`、`German`、`Korean` | `Auto` |
 | `translation_quality` | `Fast`、`Standard`、`High` | `Standard` |
 | `display_mode` | `SideChat`、`BottomSubtitle`、`Dual` | `SideChat` |
+| `panel_theme` | `Light`、`Dark` | `Light` |
 | `speech_provider` | `OpenAi`、`Gemini`、`null`，可省略 | `null`（未選擇） |
 | `live_speech_model` | `GptLiveTranscribe`、`GeminiTranscribeLive`、`GeminiLiveTranslate`、`null`；須與供應商一致 | `null`（沿用供應商預設） |
 
-speech_provider 保存供應商偏好，Live 模型另存 live_speech_model；明確按開始或執行雲端命令才啟動。金鑰不能放入設定，未選擇的可選欄位儲存時省略。schema 1 在 RAM 遷移至 2，模型保持空值，不自動寫回或切換原供應商。若需回到只支援 schema 1 的舊執行檔，先備份偏好，再手動移除 live_speech_model 並將版本改為 1；不影響 Windows 認證管理員金鑰。
+speech_provider 保存供應商偏好，Live 模型另存 live_speech_model；明確按開始或執行雲端命令才啟動。金鑰不能放入設定，未選擇的可選欄位儲存時省略。schema 1／2 在 RAM 遷移至 3，保留模型與供應商，省略配色時使用淺色，不自動寫回。面板配色獨立儲存，不需要先選擇服務。若需回到只支援 schema 2 的舊執行檔，先備份偏好，再移除 panel_theme 並將版本改為 2；只支援 schema 1 的版本另須移除 live_speech_model。不影響 Windows 認證管理員金鑰。
 
 翻譯目標固定為臺灣繁體中文 `zh-TW`，不能透過設定覆寫。省略偏好欄位時使用預設值；不支援的版本、未知欄位、錯誤選項、損壞內容與超過 16 KiB 的檔案都會回報錯誤，保留原檔並以非零結束碼離開。
 

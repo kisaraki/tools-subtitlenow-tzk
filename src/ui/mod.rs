@@ -7,6 +7,7 @@ pub mod content;
 pub mod controls;
 pub(crate) mod history;
 pub mod lyrics;
+pub mod panel_theme;
 pub mod prepared;
 pub mod presentation;
 pub mod source_list;

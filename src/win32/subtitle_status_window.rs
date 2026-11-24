@@ -79,6 +79,7 @@ impl SubtitleShell {
                 }
             }
             self.update_status_window_text(&self.status_text.borrow())?;
+            self.repaint_theme();
             if visible {
                 let show = if IsIconic(self.status_window.get()).as_bool() {
                     SW_RESTORE

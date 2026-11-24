@@ -13,7 +13,7 @@ use crate::{
     error::{AppError, Result},
 };
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 2;
+pub const CONFIG_SCHEMA_VERSION: u32 = 3;
 /// Preferences are tiny; cap reads at 16 KiB so an accidental content file cannot grow RAM.
 pub const MAX_CONFIG_BYTES: u64 = 16 * 1024;
 
@@ -27,6 +27,8 @@ pub struct AppConfig {
     pub translation_quality: TranslationQuality,
     #[serde(default)]
     pub display_mode: DisplayMode,
+    #[serde(default)]
+    pub panel_theme: crate::ui::panel_theme::PanelTheme,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speech_provider: Option<crate::ai::provider::SpeechProvider>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -40,6 +42,7 @@ impl Default for AppConfig {
             source_language: SourceLanguage::Auto,
             translation_quality: TranslationQuality::Standard,
             display_mode: DisplayMode::SideChat,
+            panel_theme: crate::ui::panel_theme::PanelTheme::default(),
             speech_provider: None,
             live_speech_model: None,
         }
@@ -83,7 +86,7 @@ impl AppConfig {
         }
         let mut config: Self =
             serde_json::from_slice(&bytes).map_err(|source| AppError::ConfigInvalid { source })?;
-        if config.schema_version == 1 {
+        if matches!(config.schema_version, 1 | 2) {
             config.schema_version = CONFIG_SCHEMA_VERSION;
         }
         config.validate()?;

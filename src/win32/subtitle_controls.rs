@@ -62,6 +62,8 @@ pub(super) enum ControlPage {
     Credentials,
 }
 pub(super) const SOURCE_ROW_DIP: i32 = 40;
+/// Fixed-choice rows retain enough height for the native system message font.
+pub(super) const CHOICE_ROW_DIP: i32 = 24;
 pub(super) const SOURCE_PANEL_HEIGHT: i32 = 180;
 pub(super) const CREDENTIAL_PANEL_HEIGHT: i32 = 300;
 const DETAIL_HEIGHT_DIP: i32 = 62;
@@ -141,12 +143,7 @@ impl ControlPanel {
                         | WS_TABSTOP
                         | WS_VSCROLL
                         | WINDOW_STYLE(
-                            (CBS_DROPDOWNLIST
-                                | if id == SOURCE {
-                                    CBS_OWNERDRAWFIXED | CBS_HASSTRINGS
-                                } else {
-                                    0
-                                }) as u32,
+                            (CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS) as u32,
                         ),
                     0,
                     0,
@@ -787,7 +784,77 @@ impl ControlPanel {
         }
         Ok(())
     }
-    pub fn draw_source(&self, draw: &DRAWITEMSTRUCT, latest: &[SourceChoice]) -> Result<()> {
+    pub fn draw_choice(
+        &self,
+        draw: &DRAWITEMSTRUCT,
+        latest: &[SourceChoice],
+        theme: &super::subtitle_theme::Theme,
+    ) -> Result<()> {
+        if draw.hwndItem == self.source {
+            return self.draw_source(draw, latest, theme);
+        }
+        if ![self.provider, self.language, self.quality].contains(&draw.hwndItem) {
+            return Ok(());
+        }
+        // SAFETY: only our fixed-string dropdowns on their owning thread. Length is
+        // bounded before CB_GETLBTEXT; no user key/text controls enter this branch.
+        unsafe {
+            let saved = SaveDC(draw.hDC);
+            if saved == 0 {
+                return Err(AppError::SubtitleWindow);
+            }
+            let (background, foreground) = theme.list_colors(
+                draw.itemState.0 & ODS_SELECTED.0 != 0,
+                draw.itemState.0 & ODS_DISABLED.0 != 0,
+            );
+            SetDCBrushColor(draw.hDC, background);
+            FillRect(draw.hDC, &draw.rcItem, HBRUSH(GetStockObject(DC_BRUSH).0));
+            SetTextColor(draw.hDC, foreground);
+            SetBkMode(draw.hDC, TRANSPARENT);
+            let font = SendMessageW(draw.hwndItem, WM_GETFONT, None, None).0;
+            if font != 0 {
+                SelectObject(draw.hDC, HGDIOBJ(font as *mut _));
+            }
+            let length = SendMessageW(
+                draw.hwndItem,
+                CB_GETLBTEXTLEN,
+                Some(WPARAM(draw.itemID as usize)),
+                None,
+            )
+            .0;
+            if (0..256).contains(&length) {
+                let mut label = [0u16; 256];
+                let count = SendMessageW(
+                    draw.hwndItem,
+                    CB_GETLBTEXT,
+                    Some(WPARAM(draw.itemID as usize)),
+                    Some(LPARAM(label.as_mut_ptr() as isize)),
+                )
+                .0;
+                if (0..256).contains(&count) {
+                    let mut rect = draw.rcItem;
+                    rect.left += super::subtitle_window::scale(6, GetDpiForWindow(draw.hwndItem));
+                    DrawTextW(
+                        draw.hDC,
+                        &mut label[..count as usize],
+                        &mut rect,
+                        DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
+                    );
+                }
+            }
+            if draw.itemState.0 & ODS_FOCUS.0 != 0 {
+                let _ = DrawFocusRect(draw.hDC, &draw.rcItem);
+            }
+            let _ = RestoreDC(draw.hDC, saved);
+        }
+        Ok(())
+    }
+    fn draw_source(
+        &self,
+        draw: &DRAWITEMSTRUCT,
+        latest: &[SourceChoice],
+        theme: &super::subtitle_theme::Theme,
+    ) -> Result<()> {
         let choice = if self.rebuilding.get() {
             None
         } else {
@@ -827,24 +894,12 @@ impl ControlPanel {
                 draw.rcItem.bottom,
             );
             let selected = draw.itemState.0 & ODS_SELECTED.0 != 0;
-            let background = if selected {
-                COLOR_HIGHLIGHT
-            } else {
-                COLOR_WINDOW
-            };
-            let color = if draw.itemState.0 & ODS_DISABLED.0 != 0 {
-                COLOR_GRAYTEXT
-            } else if selected {
-                COLOR_HIGHLIGHTTEXT
-            } else {
-                COLOR_WINDOWTEXT
-            };
-            FillRect(draw.hDC, &draw.rcItem, GetSysColorBrush(background));
+            let (background, color) =
+                theme.list_colors(selected, draw.itemState.0 & ODS_DISABLED.0 != 0);
+            SetDCBrushColor(draw.hDC, background);
+            FillRect(draw.hDC, &draw.rcItem, HBRUSH(GetStockObject(DC_BRUSH).0));
             SetBkMode(draw.hDC, TRANSPARENT);
-            SetTextColor(
-                draw.hDC,
-                windows::Win32::Foundation::COLORREF(GetSysColor(color)),
-            );
+            SetTextColor(draw.hDC, color);
             let font = SendMessageW(self.source, WM_GETFONT, None, None).0;
             if font != 0 {
                 SelectObject(draw.hDC, HGDIOBJ(font as *mut _));
@@ -888,17 +943,24 @@ impl ControlPanel {
         Ok(())
     }
     pub fn update_row_height(&self) {
-        // SAFETY: own fixed-height combo; -1 denotes closed selection, 0 all list rows.
+        // SAFETY: owned fixed-height combos; -1 denotes closed selection, 0 all list
+        // rows. Reapply for every dropdown after system-font/DPI changes.
         unsafe {
-            let height =
-                super::subtitle_window::scale(SOURCE_ROW_DIP, GetDpiForWindow(self.source));
-            for item in [usize::MAX, 0] {
-                SendMessageW(
-                    self.source,
-                    CB_SETITEMHEIGHT,
-                    Some(WPARAM(item)),
-                    Some(LPARAM(height as isize)),
-                );
+            for (control, dip) in [
+                (self.source, SOURCE_ROW_DIP),
+                (self.provider, CHOICE_ROW_DIP),
+                (self.language, CHOICE_ROW_DIP),
+                (self.quality, CHOICE_ROW_DIP),
+            ] {
+                let height = super::subtitle_window::scale(dip, GetDpiForWindow(control));
+                for item in [usize::MAX, 0] {
+                    SendMessageW(
+                        control,
+                        CB_SETITEMHEIGHT,
+                        Some(WPARAM(item)),
+                        Some(LPARAM(height as isize)),
+                    );
+                }
             }
         }
     }

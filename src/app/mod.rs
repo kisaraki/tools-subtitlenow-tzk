@@ -33,7 +33,12 @@ pub fn run_desktop() -> Result<()> {
         language: config.source_language,
         quality: config.translation_quality,
     };
-    ui_owner::run_controlled_with_content(config.display_mode, preferences, None)
+    ui_owner::run_controlled_with_content(
+        config.display_mode,
+        preferences,
+        None,
+        config.panel_theme,
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -210,7 +215,12 @@ pub fn run() -> Result<()> {
             language: config.source_language,
             quality: config.translation_quality,
         };
-        return ui_owner::run_controlled_with_content(config.display_mode, preferences, None);
+        return ui_owner::run_controlled_with_content(
+            config.display_mode,
+            preferences,
+            None,
+            config.panel_theme,
+        );
     }
     tracing::info!(
         phase = 7,

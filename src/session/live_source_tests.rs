@@ -627,6 +627,14 @@ async fn phase11_partial_stream_finishes_before_coalesced_source_is_admitted() {
     }
     assert_eq!(live.timeline().items()[0].translated.as_ref(), "測試");
     for revision in 2..=3 {
+        if revision == 3 {
+            // The previous request is still running while revisions are batched.
+            tokio::time::sleep(
+                crate::ai::translation::QualityPolicy::for_quality(TranslationQuality::Standard)
+                    .debounce,
+            )
+            .await;
+        }
         let mut next = first.clone();
         next.revision = revision;
         next.text = format!("base revision {revision}").into();
@@ -650,6 +658,11 @@ async fn phase11_partial_stream_finishes_before_coalesced_source_is_admitted() {
     );
     assert_eq!(live.timeline().items()[0].stability, Stability::Tentative);
     assert!(live.deferred.is_empty());
+    let next = live
+        .core
+        .take_ready(Instant::now())
+        .expect("a fully elapsed debounce must not restart at handoff");
+    assert_eq!(next.request().source.revision, 3);
 }
 async fn candidate(
     flow: &mut LiveTranslation<'_>,

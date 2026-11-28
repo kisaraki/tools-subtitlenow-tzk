@@ -310,6 +310,13 @@ fn build_body(
             "neighboring_drafts":context.neighboring_drafts.iter().map(|entry|json!({"sequence":entry.sequence,"source":entry.source.as_ref(),"translation":entry.translation.as_ref()})).collect::<Vec<_>>()
         });
     }
+    if request.prepared_context.is_none() {
+        data["source_status"] = match request.source.kind {
+            TranscriptKind::Partial => json!("partial"),
+            TranscriptKind::Final => json!("final"),
+        };
+        instructions.push_str(" source_status 為 partial 時，只翻已辨識的片段，語意未明可保留未完句，不推測句尾。final 時依完整原文判讀否定、數量、單位及專有名詞。前文僅供釐清指涉，勿併入本句。");
+    }
     let data = serde_json::to_string(&data).map_err(|_| TranslationError::InvalidData)?;
     Ok(match provider {
         SpeechProvider::OpenAi => {
@@ -478,15 +485,14 @@ impl WireTranslation {
                             let delta = message["delta"]
                                 .as_str()
                                 .ok_or(TranslationError::InvalidData)?;
-                            self.append(delta)?;
+                            self.append(delta)
                         } else {
                             self.replace(
                                 message["text"]
                                     .as_str()
                                     .ok_or(TranslationError::InvalidData)?,
-                            )?;
+                            )
                         }
-                        Ok(true)
                     }
                     "response.completed" => {
                         if self.completed || message["response"]["status"] != "completed" {
@@ -544,9 +550,9 @@ impl WireTranslation {
                         if messages != 1 || final_text.is_empty() {
                             return Err(TranslationError::Incomplete);
                         }
-                        self.replace(&final_text)?;
+                        let changed = self.replace(&final_text)?;
                         self.completed = true;
-                        Ok(true)
+                        Ok(changed)
                     }
                     "response.incomplete" => Err(
                         if message["response"]["incomplete_details"]["reason"] == "content_filter" {
@@ -614,8 +620,7 @@ impl WireTranslation {
                             continue;
                         }
                         let text = part["text"].as_str().ok_or(TranslationError::InvalidData)?;
-                        self.append(text)?;
-                        changed = true;
+                        changed |= self.append(text)?;
                     }
                 }
                 if let Some(reason) = candidate.get("finishReason") {
@@ -634,20 +639,23 @@ impl WireTranslation {
             }
         }
     }
-    fn append(&mut self, text: &str) -> Result<(), TranslationError> {
+    fn append(&mut self, text: &str) -> Result<bool, TranslationError> {
         if self.text.len() + text.len() > self.max_text_bytes {
             return Err(TranslationError::InvalidData);
         }
         self.text.push_str(text);
-        Ok(())
+        Ok(!text.is_empty())
     }
-    fn replace(&mut self, text: &str) -> Result<(), TranslationError> {
+    fn replace(&mut self, text: &str) -> Result<bool, TranslationError> {
         if text.len() > self.max_text_bytes {
             return Err(TranslationError::InvalidData);
         }
+        if self.text == text {
+            return Ok(false);
+        }
         self.text.clear();
         self.text.push_str(text);
-        Ok(())
+        Ok(true)
     }
 }
 async fn consume(

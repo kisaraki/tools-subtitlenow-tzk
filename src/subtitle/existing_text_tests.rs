@@ -75,6 +75,12 @@ async fn chinese_routes_preserve_native_text_and_localize_taiwan_terms() {
             "軟件、服務器、網絡、文件夾、鼠標、出租車、打印機、硬盤",
             "軟體、伺服器、網路、資料夾、滑鼠、計程車、印表機、硬碟",
         ),
+        (
+            4,
+            TextLanguage::TaiwanTraditional,
+            "内存、软件、服務器、文件夾、鼠标",
+            "記憶體、軟體、伺服器、資料夾、滑鼠",
+        ),
     ] {
         let (query, text) = fixture(index, language, source);
         let result = run(&mut owner, query, text).await.unwrap();

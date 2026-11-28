@@ -312,17 +312,11 @@ fn normalize(
         if cancel.is_cancelled() {
             return Err(TextLocalizationError::Cancelled);
         }
-        let text = match original.language {
-            TextLanguage::TaiwanTraditional => cue.text.clone(),
-            TextLanguage::OtherTraditional | TextLanguage::SimplifiedChinese => {
-                taiwan_phrase_conversion(&cue.text)
-                    .map_err(|_| ResolverError::InvalidData)?
-                    .into_boxed_str()
-            }
-            TextLanguage::Source(language) => {
-                return Err(TextLocalizationError::TranslationRequired(language));
-            }
-        };
+        // A language label is metadata, not proof that the text uses Taiwan
+        // characters/terms. Preserve the original cue and normalize every display copy.
+        let text = taiwan_phrase_conversion(&cue.text)
+            .map_err(|_| ResolverError::InvalidData)?
+            .into_boxed_str();
         bytes = bytes
             .checked_add(text.len())
             .ok_or(ResolverError::InvalidData)?;

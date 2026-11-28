@@ -27,10 +27,14 @@ fn phase11_native_caption_uses_the_shared_timeline_without_asr_or_translation_jo
                 sequence: 1,
                 revision,
                 kind,
-                text: "软件与打印机".into(),
+                text: "内存与软件及打印机".into(),
                 received: Instant::now()
             })
             .unwrap()
+        );
+        assert_eq!(
+            core.timeline().items()[0].translated.as_ref(),
+            "記憶體與軟體及印表機"
         );
     }
     let row = &core.timeline().items()[0];
@@ -38,7 +42,8 @@ fn phase11_native_caption_uses_the_shared_timeline_without_asr_or_translation_jo
     assert_eq!(row.source.start_us, None);
     assert_eq!(row.source.duration_us, None);
     assert_eq!(row.source.language, None);
-    assert_eq!(row.translated.as_ref(), "軟體與印表機");
+    assert_eq!(row.translated.as_ref(), "記憶體與軟體及印表機");
+    assert_eq!(row.stable_prefix_bytes, row.translated.len());
     assert_eq!(row.stability, Stability::Final);
     assert_eq!(core.pending_requests(), 0);
     assert_eq!(core.active_requests(), 0);
@@ -100,6 +105,110 @@ fn coordinator(quality: TranslationQuality) -> TranslationCoordinator {
 }
 struct MockTranslator {
     calls: AtomicUsize,
+}
+
+/// Deliberately omits adapter-side localization to exercise the shared output gate.
+struct UnlocalizedTranslator;
+impl Translator for UnlocalizedTranslator {
+    fn capabilities(&self) -> TranslationCapabilities {
+        caps()
+    }
+    fn translate<'a>(
+        &'a self,
+        _request: &'a TranslationRequest,
+        output: &'a mut TranslationEmitter,
+        _cancel: TranslationCancellation,
+    ) -> TranslationFuture<'a> {
+        Box::pin(async move {
+            output.emit("内存")?;
+            Ok("内存与软件".into())
+        })
+    }
+}
+
+#[tokio::test]
+async fn taiwan_output_gate_normalizes_streaming_final_and_review_for_both_views() {
+    use crate::{
+        domain::DisplayMode,
+        ui::presentation::{Presentation, TimelineSnapshot},
+    };
+    for quality in [
+        TranslationQuality::Fast,
+        TranslationQuality::Standard,
+        TranslationQuality::High,
+    ] {
+        let mut core = coordinator(quality);
+        // High schedules a review when glossary/context makes it useful.
+        core.glossary_mut()
+            .set(identity(), "software", "軟體")
+            .unwrap();
+        core.ingest(source(1, 1, TranscriptKind::Final, "Memory and software"))
+            .unwrap();
+        core.take_ready(Instant::now())
+            .unwrap()
+            .run(&UnlocalizedTranslator)
+            .await
+            .unwrap();
+        assert_eq!(core.changed().await.unwrap(), Some(1));
+        assert_eq!(core.timeline().items()[0].translated.as_ref(), "記憶體");
+        assert_eq!(core.changed().await.unwrap(), Some(1));
+        if quality == TranslationQuality::High {
+            let review = core.take_ready(Instant::now()).unwrap();
+            assert_eq!(review.request().draft.as_deref(), Some("記憶體與軟體"));
+            review.run(&UnlocalizedTranslator).await.unwrap();
+            assert_eq!(core.changed().await.unwrap(), None);
+            assert_eq!(core.changed().await.unwrap(), Some(1));
+        }
+        let item = &core.timeline().items()[0];
+        assert_eq!(item.translated.as_ref(), "記憶體與軟體");
+        assert_eq!(item.stable_prefix_bytes, "記憶體與軟體".len());
+        assert_eq!(item.stability, Stability::Final);
+        assert_eq!(item.source.text.as_ref(), "Memory and software");
+        let mut view = Presentation::new(DisplayMode::Dual);
+        view.select_session(identity());
+        assert!(view.apply(TimelineSnapshot::from_timeline(core.timeline(), 1)));
+        assert!(view.side_text().contains("記憶體與軟體"));
+        assert_eq!(view.overlay_text(), "記憶體與軟體");
+    }
+}
+
+#[tokio::test]
+async fn taiwan_output_gate_checks_committed_prefix_after_localization_expands_bytes() {
+    let mut core = coordinator(TranslationQuality::Standard);
+    core.ingest(source(1, 1, TranscriptKind::Partial, "Memory"))
+        .unwrap();
+    core.take_ready(Instant::now() + core.policy.debounce)
+        .unwrap()
+        .run(&UnlocalizedTranslator)
+        .await
+        .unwrap();
+    core.drain_updates().unwrap();
+    core.commit_prefix(1, "記憶體".len()).unwrap();
+    core.ingest(source(1, 2, TranscriptKind::Final, "Memory and software"))
+        .unwrap();
+    core.take_ready(Instant::now())
+        .unwrap()
+        .run(&UnlocalizedTranslator)
+        .await
+        .unwrap();
+    core.drain_updates().unwrap();
+    let item = &core.timeline().items()[0];
+    assert_eq!(item.translated.as_ref(), "記憶體與軟體");
+    assert_eq!(item.stable_prefix_bytes, item.translated.len());
+    assert_eq!(item.stability, Stability::Final);
+}
+
+#[test]
+fn taiwan_output_gate_rejects_expanded_over_budget_text_before_queueing() {
+    let mut core = coordinator(TranslationQuality::Standard);
+    core.ingest(source(1, 1, TranscriptKind::Final, "Memory"))
+        .unwrap();
+    let mut job = core.take_ready(Instant::now()).unwrap();
+    let raw = "内存".repeat(MAX_TRANSCRIPT_BYTES / "内存".len());
+    assert!(raw.len() <= MAX_TRANSCRIPT_BYTES);
+    assert_eq!(job.output.emit(&raw), Err(TranslationError::InvalidData));
+    assert_eq!(core.update_queue_depth(), 0);
+    assert!(core.timeline().items()[0].translated.is_empty());
 }
 impl MockTranslator {
     fn new() -> Self {

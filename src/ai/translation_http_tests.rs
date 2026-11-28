@@ -98,10 +98,28 @@ fn request_separates_instructions_and_session_data_without_remote_storage() {
         let data: Value = serde_json::from_str(data).unwrap();
         assert_eq!(data["target_locale"], "zh-TW");
         assert_eq!(data["source_text"], source().text.as_ref());
+        assert_eq!(data["source_status"], "final");
         assert!(data.get("prepared_context").is_none());
         assert!(body.get("tools").is_none());
         assert!(body.get("cachedContent").is_none());
         assert!(body.get("previous_response_id").is_none());
+    }
+}
+#[test]
+fn partial_source_status_is_independent_of_translation_pass() {
+    let mut core = core();
+    let mut partial = source();
+    partial.kind = TranscriptKind::Partial;
+    core.ingest(partial).unwrap();
+    let job = core
+        .take_ready(
+            Instant::now() + QualityPolicy::for_quality(TranslationQuality::Standard).debounce,
+        )
+        .unwrap();
+    for provider in [SpeechProvider::OpenAi, SpeechProvider::Gemini] {
+        let data = request_data(provider, &build_body(provider, job.request()).unwrap());
+        assert_eq!(data["source_status"], "partial");
+        assert_eq!(data["pass"], "Draft");
     }
 }
 fn prepared_request(quality: TranslationQuality) -> TranslationRequest {
@@ -421,6 +439,28 @@ fn sse_handles_every_byte_boundary_and_crlf_without_exposing_thoughts() {
         assert!(wire.completed);
         assert_eq!(wire.text, "软件与服务器");
         assert!(!wire.text.contains("PRIVATE_REASONING"));
+    }
+}
+#[test]
+fn repeated_completion_text_does_not_emit_duplicate_tentatives() {
+    for (confirmed, changed) in [("三個檔案", false), ("請勿刪除三個檔案", true)] {
+        let mut wire = WireTranslation::new(SpeechProvider::OpenAi);
+        let mut receive = |event: Value| wire.event(&serde_json::to_vec(&event).unwrap());
+        assert_eq!(
+            receive(
+                json!({"type":"response.output_text.delta","sequence_number":1,"item_id":"m1","content_index":0,"delta":"三個檔案"})
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            receive(
+                json!({"type":"response.output_text.done","sequence_number":2,"item_id":"m1","content_index":0,"text":"三個檔案"})
+            ),
+            Ok(false)
+        );
+        assert_eq!(receive(completed(confirmed)), Ok(changed));
+        assert!(wire.completed);
+        assert_eq!(wire.text, confirmed);
     }
 }
 #[test]

@@ -38,6 +38,7 @@ impl LiveTranslationNotice {
 }
 struct DeferredPartial {
     event: TranscriptEvent,
+    debounce_from: Instant,
     expires: Instant,
 }
 pub struct LiveTranslation<'a> {
@@ -90,21 +91,24 @@ impl<'a> LiveTranslation<'a> {
             return Ok(false);
         }
         if self.core.can_coalesce_partial(&event) {
-            let pending = DeferredPartial {
-                event,
-                expires: Instant::now() + MAX_TRANSLATION_AGE,
-            };
+            let received = Instant::now();
+            let expires = received + MAX_TRANSLATION_AGE;
             if let Some(slot) = self
                 .deferred
                 .iter_mut()
-                .find(|slot| slot.event.utterance == pending.event.utterance)
+                .find(|slot| slot.event.utterance == event.utterance)
             {
-                *slot = pending;
+                slot.event = event;
+                slot.expires = expires;
             } else {
                 if self.deferred.len() >= MAX_TIMELINE_ITEMS {
                     return Err(TranslationError::Overloaded);
                 }
-                self.deferred.push(pending);
+                self.deferred.push(DeferredPartial {
+                    event,
+                    debounce_from: received,
+                    expires,
+                });
             }
             // Accepted by the coalescer, but the shared timeline has not changed.
             return Ok(false);
@@ -170,7 +174,8 @@ impl<'a> LiveTranslation<'a> {
                 }
                 continue;
             }
-            self.core.ingest_deadline(pending.event, pending.expires)?;
+            self.core
+                .ingest_timed(pending.event, pending.debounce_from, pending.expires)?;
         }
         Ok(())
     }

@@ -1,8 +1,12 @@
 # Universal AI Subtitle for Windows
 
-**SubtitleNow 0.1.3 · 作者 kisaraki**
+**SubtitleNow 0.1.4 · 作者 kisaraki**
 
 [官方網站](https://kisaraki.github.io/tools-subtitlenow-tzk/) · [下載 setup.exe](https://github.com/kisaraki/tools-subtitlenow-tzk/releases/latest/download/setup.exe) · [版本說明](https://github.com/kisaraki/tools-subtitlenow-tzk/releases/latest)
+
+0.1.4 改善連續說話時的字幕更新。上一筆翻譯進行期間，後續原文已等候的時間計入合併間隔。OpenAI 與 Gemini 的文字翻譯現在可區分辨識片段與定稿，片段只翻已說出的內容，定稿再依完整語意校正。
+
+2026-11-24：翻譯結果強制使用臺灣地區繁體中文。共用輸出在暫定、定稿與校訂字幕進入時間軸前，統一進行繁體字及臺灣用語轉換；既有字幕即使標示為 zh-TW 也不略過轉換。轉換後重新核對長度及穩定前綴，原文保留。詳見 [臺灣繁體中文輸出](docs/taiwan-output.md)。
 
 2026-11-02：新增「選單 → 面板外觀 → 深色模式／淺色模式」。深色為藍黑、螢光綠、紫羅蘭與琥珀色；淺色為白灰、紫羅蘭與橘色。切換立即生效並記住偏好，保留字幕、視窗配置與執行中的翻譯。官網右上角也可獨立切換並記住網站配色。詳見 [面板配色](docs/ui-refresh.md)。
 
